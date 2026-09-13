@@ -1,0 +1,56 @@
+name: feed
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install the signing key
+        env:
+          APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
+        run: |
+          [ -n "$APK_SIGN_KEY" ] || { echo "APK_SIGN_KEY secret is not set" >&2; exit 1; }
+          mkdir -p ~/.seedex
+          printf '%s\n' "$APK_SIGN_KEY" > ~/.seedex/apk-sign.key
+          chmod 600 ~/.seedex/apk-sign.key
+
+      - name: Build the packages
+        run: make build
+
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp -r build/noarch build/keys site/
+          cp install.sh site/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
