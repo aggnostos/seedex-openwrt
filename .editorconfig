@@ -1,0 +1,36 @@
+# Formatting that editors apply automatically, so it never reaches review.
+# See docs/STYLE.md for the rules a formatter cannot express.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+max_line_length = 100
+
+# Shell and Go both use tabs; gofmt and shfmt enforce this regardless, the
+# setting is here so a fresh editor does not fight them.
+[*.{sh,bash}]
+indent_style = tab
+
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# Shell scripts without an extension: the CLIs, init scripts, package scripts.
+[{seedex,seedex-*,sdx,luci.seedex,install.sh,build.sh,50-*,post-*,pre-*}]
+indent_style = tab
+
+[Makefile]
+indent_style = tab
+
+[*.md]
+# Trailing spaces are a line break in Markdown.
+trim_trailing_whitespace = false
+
+[*.{yml,yaml,json,jsonc}]
+indent_size = 2
