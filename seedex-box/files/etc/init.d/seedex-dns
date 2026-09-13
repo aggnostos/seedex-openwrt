@@ -220,6 +220,7 @@ start_service() {
 
 	_write_upstream_ips
 	seedex_dns_bootstrap_refresh
+	md5sum /etc/config/seedex-dns >"$DNS_RUNDIR/config.md5"
 	rm -f "${DNSMASQ_CONF%/*}/seedex-router.conf"
 	if _write_dnsmasq_conf; then
 		/etc/init.d/dnsmasq restart 2>/dev/null
@@ -231,6 +232,11 @@ reload_service() {
 	_load_config
 	_resolver || return 1
 	[ -f "$DNS_RUNDIR/upstream.ips" ] || return 0
+	if ! md5sum -c -s "$DNS_RUNDIR/config.md5" 2>/dev/null; then
+		log_info "settings changed, restarting"
+		start
+		return
+	fi
 	if _write_dnsmasq_conf; then
 		/etc/init.d/dnsmasq restart 2>/dev/null
 		log_debug "dnsmasq config reloaded"
