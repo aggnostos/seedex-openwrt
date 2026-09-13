@@ -1,0 +1,14 @@
+#!/bin/sh
+
+set -e
+
+[ -z "${IPKG_INSTROOT:-}" ] || exit 0
+
+for left in /etc/seedex /etc/config/seedex-*; do
+	[ -e "$left" ] || continue
+	echo "seedex-box: settings kept in /etc/config/seedex-* and /etc/seedex"
+	echo "seedex-box: remove them with: rm -rf /etc/seedex /etc/config/seedex-*"
+	break
+done
+
+exit 0

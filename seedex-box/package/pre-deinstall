@@ -1,0 +1,13 @@
+#!/bin/sh
+
+set -e
+
+[ -z "${IPKG_INSTROOT:-}" ] || exit 0
+
+for svc in seedex seedex-router seedex-vpn seedex-proxy seedex-dns; do
+	[ -x "/etc/init.d/$svc" ] || continue
+	"/etc/init.d/$svc" stop 2>/dev/null || true
+	"/etc/init.d/$svc" disable 2>/dev/null || true
+done
+
+exit 0

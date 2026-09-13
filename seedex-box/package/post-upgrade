@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -e
+
+[ -z "${IPKG_INSTROOT:-}" ] || exit 0
+
+/etc/init.d/seedex enable 2>/dev/null || true
+
+echo "seedex-box: upgraded on disk; running services keep the previous build until restarted:"
+echo "seedex-box:   /etc/init.d/seedex restart"
+
+exit 0
