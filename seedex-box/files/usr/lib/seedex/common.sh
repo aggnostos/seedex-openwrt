@@ -178,11 +178,11 @@ seedex_config_validate() {
 			}
 		local bad
 		bad=$(jq -r '
-			map(select((.name // "") == "" or ((.type // "") | IN("direct", "overlay") | not)))
+			map(select((.name // "") == "" or ((.type // "") | IN("direct", "overlay", "block") | not)))
 			| length' "$file" 2>/dev/null)
 		[ "$bad" = 0 ] ||
 			{
-				echo "$bad rule(s) without a name or with a type other than direct/overlay"
+				echo "$bad rule(s) without a name or with a type other than direct/overlay/block"
 				return 1
 			}
 		;;
