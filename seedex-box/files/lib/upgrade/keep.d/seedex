@@ -1,0 +1,7 @@
+# Paths sysupgrade must carry across a firmware upgrade.
+#
+# /etc/config is already covered by the base keep list, so the UCI sections
+# survive on their own — but they only store *paths* to the AmneziaWG and
+# sing-box documents. Without this file those documents are wiped and every
+# interface comes back pointing at a config that no longer exists.
+/etc/seedex
