@@ -1,0 +1,20 @@
+# Settings the box owns, applied over whatever the imported configs contain.
+config proxy 'main'
+	option log_level 'warn'
+	option urltest_interval '1m'
+
+# Proxy configs. Each section points at a native sing-box client config —
+# one file per protocol, so a protocol is enabled or disabled by toggling its
+# section rather than by editing a document.
+#
+# At startup the box takes the outbounds from every enabled file, wraps them
+# in a urltest selector and its own tun/dns/route frame. Protocol details stay
+# entirely inside the files.
+#
+#   config config 'a1b2c3d4_vless_0'
+#       option name    'VLESS-Reality'
+#       option enabled '1'
+#       option config  '/etc/seedex/proxy/a1b2c3d4-vless-0.json'
+#
+# Sections are created by `sdx import <file.json>` or LuCI. None are
+# shipped by default.

@@ -1,0 +1,15 @@
+# VPN configs. Each section points at a native AmneziaWG config file; the
+# keys, peers and obfuscation parameters live in that file, not here — which
+# is why a new protocol version needs no change on the box.
+#
+# UCI keeps only what the file cannot express: whether the config is
+# enabled. Every enabled config gets its own tunnel; the router's watchdog
+# picks between them by RTT.
+#
+#   config config 'a1b2c3d4_awg_0'
+#       option name      'AWG'
+#       option enabled   '1'
+#       option config    '/etc/seedex/vpn/a1b2c3d4-awg-0.conf'
+#
+# Sections are created by `sdx import <file.conf>` or LuCI. None are
+# shipped by default.

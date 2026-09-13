@@ -1,0 +1,23 @@
+# DNS policy for every device behind the router: what the box resolves
+# through and who is allowed to bypass it. This service owns dnsmasq: it also
+# turns the router's rules into dnsmasq directives (domains → nft sets for
+# routing, NXDOMAIN for block rules), taking them from the domain lists the
+# router publishes under /var/run/seedex/router/domains.
+#
+# upstream decides where dnsmasq sends queries:
+#   encrypted — DNS-over-HTTPS to the resolver (https-dns-proxy); the
+#               HTTPS connection follows the overlay, so it goes through
+#               the tunnel when one is up and over the WAN otherwise
+#   plain     — the resolver's classic DNS; same path, but readable to
+#               whoever carries it
+#   provider  — whatever the WAN handed out by DHCP, untouched
+# resolver is cloudflare, quad9 or google.
+#
+# intercept redirects every port-53 query from the LAN into dnsmasq, whatever
+# address the client meant, and refuses DNS-over-TLS (853) — a device with its
+# own resolver would otherwise bypass the routing rules. Firefox is told to
+# drop DNS-over-HTTPS through the use-application-dns.net canary.
+config dns 'main'
+	option upstream 'encrypted'
+	option resolver 'cloudflare'
+	option intercept '1'

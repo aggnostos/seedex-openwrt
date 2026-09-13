@@ -1,0 +1,62 @@
+# Policy routing between the WAN and the overlay (the VPN and proxy tunnels).
+#
+# default_route decides where traffic goes when no rule matches:
+#   overlay — everything through the tunnel, rules carve out exceptions
+#   direct  — everything via WAN, rules pick what goes through the tunnel
+# kill_switch drops traffic bound for the overlay when no tunnel can carry
+# it, instead of letting it fall back to the WAN.
+# The watchdog probes every tunnel interface each interval and keeps the
+# overlay's default route on the one with the lowest RTT, switching only
+# when another is clearly faster.
+config router 'main'
+	option default_route 'overlay'
+	option kill_switch '1'
+	option watchdog_interval '30'
+	option watchdog_url 'https://www.gstatic.com/generate_204'
+	option watchdog_timeout '5'
+
+# Rules. `type` is what happens to matched traffic: 'direct' (WAN), 'overlay'
+# (tunnel) or 'block' (dropped). A rule matches either destinations or
+# clients, never both.
+#
+# Destination rules: domains are resolved by dnsmasq as clients ask for them
+# (subdomains included) and the answers, A and AAAA alike, land in an nft
+# set; IPv4 and IPv6 addresses and CIDRs are loaded directly. IPv6 follows the
+# same path as IPv4: through the tunnel when it carries IPv6, unreachable
+# otherwise — never around the tunnel. A list is a plain text file with one domain or IP per line,
+# fetched from list_url when the router starts and then every list_refresh
+# (e.g. 12h, 1d), or read from list_path on the router.
+#
+# 'block' answers NXDOMAIN for the domains and drops packets to the IPs — an
+# ad and tracker filter for every device behind the router. It works in both
+# modes; a hosts-style list (0.0.0.0 domain) is accepted as is.
+#
+#   config rule 'ads'
+#       option name     'ads'
+#       option type     'block'
+#       option enabled  '1'
+#       option list_url 'https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts'
+#       option list_refresh '1d'
+#
+#   config rule 'youtube'
+#       option name    'youtube'
+#       option type    'overlay'
+#       option enabled '1'
+#       list domain    'youtube.com'
+#       list domain    'googlevideo.com'
+#       list ip        '142.250.0.0/15'
+#       option list_url     'https://example.org/domains.txt'
+#       option list_refresh '12h'
+#
+# Client rules: all traffic from these devices, matched by MAC address.
+# They take precedence over destination rules, so a device pinned to 'direct'
+# stays on WAN even for domains other rules send through the tunnel.
+#
+#   config rule 'tv'
+#       option name    'tv'
+#       option type    'direct'
+#       option enabled '1'
+#       list mac       'aa:bb:cc:dd:ee:ff'
+#
+# Sections are created by `sdx router add`, `sdx import <rules.json>` or LuCI.
+# None are shipped by default.
