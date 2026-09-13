@@ -1,0 +1,378 @@
+#!/bin/sh
+
+TAG="seedex"
+. /usr/lib/seedex/common.sh
+
+SERVICES="seedex-router seedex-vpn seedex-proxy seedex-dns"
+SEEDEX_SERVICES="router vpn proxy dns"
+SEEDEX_SVC_REQUIRED="config show add update enable disable remove"
+
+_lib() {
+	local path="/usr/lib/seedex/${1}.sh"
+	[ -f "$path" ] || die "missing service library: $path"
+	printf '%s\n' "$path"
+}
+
+_svc() {
+	local svc="$1"
+	shift
+	# shellcheck disable=SC1090  # path resolved at runtime
+	(
+		. "$(_lib "$svc")"
+		if [ "$1" = "--import" ]; then
+			svc_import_file "$2"
+		else
+			svc_dispatch "$@"
+		fi
+	)
+}
+
+_svc_help() {
+	# shellcheck disable=SC1090
+	(
+		. "$(_lib "$1")"
+		svc_help
+	)
+}
+
+_svc_actions() {
+	# shellcheck disable=SC1090
+	(
+		. "$(_lib "$1")"
+		printf '%s\n' "$SVC_ACTIONS"
+	)
+}
+
+_svc_has() {
+	case " $(_svc_actions "$1") " in
+	*" $2 "*) return 0 ;;
+	esac
+	return 1
+}
+
+SVC_NOOP=3
+
+_fan_out() {
+	local action="$1"
+	shift
+	local svc rc ran=0 did=0 status=0
+
+	for svc in $SEEDEX_SERVICES; do
+		_svc_has "$svc" "$action" || continue
+		ran=1
+		case "$action" in
+		start | restart)
+			seedex_service_enabled "$svc" || {
+				echo "$svc is disabled, skipping"
+				did=1
+				continue
+			}
+			;;
+		esac
+		_svc "$svc" "$action" "$@"
+		rc=$?
+		case "$rc" in
+		0) did=1 ;;
+		"$SVC_NOOP") ;;
+		*) status=$rc ;;
+		esac
+	done
+
+	[ "$ran" = 1 ] || {
+		printf 'unknown action: %s\n\n' "$action" >&2
+		cmd_help >&2
+		exit 2
+	}
+	[ "$did" = 1 ] || [ "$status" != 0 ] || {
+		echo "nothing to do"
+		return 1
+	}
+	return "$status"
+}
+
+cmd_version() {
+	local version
+	version=$(apk list -I seedex-box 2>/dev/null | sed -n 's/^seedex-box-\([^ ]*\).*/\1/p')
+	printf '%s\n' "${version:-unknown}"
+}
+
+_probe_uplink() {
+	UPLINK_OK=0
+	UPLINK_RTT=""
+
+	local cached=""
+	if [ "$OVERLAY_FRESH" = 1 ]; then
+		cached=$(awk '$1 == "uplink" { print $2, $3; exit }' "$CONN_FILE")
+	fi
+	[ -n "$cached" ] || cached=$(seedex_probe_uplink)
+
+	case "$cached" in
+	"1 "*)
+		UPLINK_OK=1
+		UPLINK_RTT=${cached#1 }
+		;;
+	esac
+}
+
+_read_overlay() {
+	OVERLAY_FRESH=0
+	OVERLAY_AVAIL=0
+	OVERLAY_REASON=""
+	OVERLAY_ACTIVE=""
+	CONN_FILE="$SEEDEX_RUNDIR/router/connectivity.state"
+
+	if [ ! -f "$CONN_FILE" ]; then
+		OVERLAY_REASON="router_stopped"
+		return 0
+	fi
+
+	local interval
+	interval=$(uci -q get seedex-router.main.watchdog_interval)
+	[ "$interval" -gt 0 ] 2>/dev/null || interval=30
+
+	local _ts=0 _n=0 _ok=0 _active="" _stale=0
+	eval "$(awk -v now="$(date +%s)" -v fallback="$interval" '
+		$1 == "ts"       { ts = $2 }
+		$1 == "interval" { step = $2 }
+		$1 == "active"   { active = $2 }
+		$1 == "iface"    { n++; if ($3 == "1") ok++ }
+		END {
+			if (step + 0 <= 0) step = fallback
+			printf "_ts=%d _n=%d _ok=%d _active=%s\n", ts + 0, n + 0, ok + 0, (active == "" ? "\"\"" : "\"" active "\"")
+			printf "_stale=%d\n", (now - (ts + 0) > (step + 0) * 2) ? 1 : 0
+		}' "$CONN_FILE")"
+
+	if [ "$_stale" = 1 ]; then
+		OVERLAY_REASON="stale"
+		return 0
+	fi
+	OVERLAY_FRESH=1
+	if [ "$_n" -eq 0 ]; then
+		OVERLAY_REASON="no_interfaces"
+	elif [ "$_ok" -eq 0 ]; then
+		OVERLAY_REASON="all_unreachable"
+	else
+		OVERLAY_AVAIL=1
+		OVERLAY_ACTIVE="$_active"
+	fi
+}
+
+_load_iface_rtt() {
+	IFACE_RTT=""
+	[ -f "$CONN_FILE" ] || return 0
+	IFACE_RTT=$(awk '$1 == "iface" && $3 == "1" { printf " %s=%s", $2, $4 }' "$CONN_FILE")
+}
+
+_iface_rtt() {
+	local pair
+	for pair in $IFACE_RTT; do
+		case "$pair" in
+		"$1="*)
+			printf '%s\n' "${pair#*=}"
+			return 0
+			;;
+		esac
+	done
+	return 1
+}
+
+cmd_status() {
+	_read_overlay
+	_load_iface_rtt
+	_probe_uplink
+
+	local active_iface=""
+	[ -f "$SEEDEX_RUNDIR/router/active_iface" ] &&
+		active_iface=$(cat "$SEEDEX_RUNDIR/router/active_iface" 2>/dev/null)
+
+	local active_name
+	active_name=$(seedex_iface_name "$active_iface")
+
+	echo "seedex v$(cmd_version)"
+	echo
+
+	section "Uplink:"
+	if [ "$UPLINK_OK" = 1 ]; then
+		printf '  [*] %-24s %s ms\n' "Internet" "$UPLINK_RTT"
+	else
+		printf '  [ ] %-24s unreachable\n' "Internet"
+	fi
+	if [ "$OVERLAY_AVAIL" = 1 ] && [ -n "$active_iface" ]; then
+		printf '  [*] %-24s %s ms\n' "Overlay (${active_name:-$active_iface})" "$(_iface_rtt "$active_iface")"
+	else
+		printf '  [ ] %-24s unavailable (%s)\n' "Overlay" "${OVERLAY_REASON:-no_interfaces}"
+	fi
+
+	local svc
+	for svc in $SEEDEX_SERVICES; do
+		echo
+		_svc "$svc" status
+	done
+}
+
+cmd_logs() {
+	logread -e seedex "$@"
+}
+
+_import_one() {
+	local file="$1" kind reason
+
+	kind=$(seedex_config_kind "$file")
+	case "$kind" in
+	awg | singbox | rules)
+		reason=$(seedex_config_validate "$file" "$kind") || {
+			warn "$(basename "$file"): $reason"
+			return 1
+		}
+		case "$kind" in
+		awg) _svc vpn --import "$file" ;;
+		singbox) _svc proxy --import "$file" ;;
+		rules) _svc router --import "$file" ;;
+		esac
+		;;
+	*)
+		warn "$(basename "$file"): unrecognised — expected an AmneziaWG .conf,
+a sing-box .json, or a router rules .json"
+		return 1
+		;;
+	esac
+}
+
+cmd_import() {
+	local path="$1"
+	[ -n "$path" ] || usage "sdx import <file|directory>"
+
+	if [ -f "$path" ]; then
+		_import_one "$path" || exit 1
+		return
+	fi
+
+	[ -d "$path" ] || die "no such file or directory: $path"
+
+	local f kind ok=0 failed=0 skipped=0
+	for f in "$path"/*; do
+		[ -f "$f" ] || continue
+
+		kind=$(seedex_config_kind "$f")
+		if [ "$kind" = unknown ]; then
+			skipped=$((skipped + 1))
+			continue
+		fi
+
+		if _import_one "$f"; then
+			ok=$((ok + 1))
+		else
+			failed=$((failed + 1))
+		fi
+	done
+
+	echo
+	echo "imported $ok, failed $failed, skipped $skipped"
+	[ "$ok" -gt 0 ] || [ "$failed" -eq 0 ] || die "nothing was imported"
+	[ "$failed" -eq 0 ] || exit 1
+}
+
+cmd_help() {
+	echo "Usage: sdx [<service>]                      Status of the box, or of one service"
+	echo "       sdx <service> <action> [options]     service: router, vpn, proxy, dns"
+	echo "       sdx <action> [options]               every service that has the action"
+	echo
+	section "Service:"
+	echo "  start | stop | restart        Control the service now"
+	echo "  enable | disable              Keep the service on or off across reboots"
+	echo "  config                        Service settings: show, get <key>, set k=v ..."
+	echo
+	section "Entries (rules in router, configs in vpn and proxy):"
+	echo "  show [#|name]                 List entries, or show one"
+	echo "  add <name> k=v ...            Add a rule; vpn and proxy take files via 'sdx import'"
+	echo "  update <#|name> k=v ...       Modify a rule"
+	echo "  enable | disable <#|name>     Toggle an entry (without an entry: the service)"
+	echo "  remove <#|name>               Remove an entry"
+	echo "  export                        Print the entries for 'sdx import'"
+	echo "  reset                         Drop every entry and its stored data"
+	echo
+	section "Box:"
+	echo "  import <path>                 Import a config file, or every config in a directory"
+	echo "  logs                          Show seedex logs (passes args to logread)"
+	echo "  version                       Show version"
+	echo "  help                          This text"
+	echo
+	echo "Changes made by add, update, enable, disable, remove, import and config"
+	echo "stay pending in UCI: review with 'uci changes', apply with 'uci commit'"
+	echo "and 'sdx <service> restart'."
+}
+
+cmd_svc_help() {
+	echo "Usage: sdx $1 <action> [options]"
+	echo
+	_svc_help "$1" | awk -F'\t' '{ printf "  %-29s %s\n", $1, ($3 != "" ? $3 : $2) }'
+}
+
+SVC=""
+case "${1:-}" in
+router | vpn | proxy | dns)
+	SVC="$1"
+	shift
+	;;
+esac
+
+if [ -n "$SVC" ]; then
+	case "${1:-}" in
+	help | -h | --help)
+		cmd_svc_help "$SVC"
+		exit 0
+		;;
+	"")
+		_svc "$SVC" status
+		exit $?
+		;;
+	esac
+
+	ACTION="$1"
+	shift
+	_svc_has "$SVC" "$ACTION" || {
+		printf '%s has no action %s\n\n' "$SVC" "$ACTION" >&2
+		cmd_svc_help "$SVC" >&2
+		exit 2
+	}
+	_svc "$SVC" "$ACTION" "$@"
+	rc=$?
+	[ "$rc" != "$SVC_NOOP" ] || {
+		echo "nothing to do"
+		rc=1
+	}
+	exit "$rc"
+fi
+
+case "${1:-}" in
+"")
+	cmd_status
+	;;
+import)
+	shift
+	cmd_import "$1"
+	;;
+logs)
+	shift
+	cmd_logs "$@"
+	;;
+version)
+	cmd_version
+	;;
+help | -h | --help)
+	cmd_help
+	;;
+*)
+	ACTION="$1"
+	shift
+	case " $SEEDEX_SVC_REQUIRED " in
+	*" $ACTION "*)
+		usage_block "sdx <svc> $ACTION [options]" \
+			"<svc> is one of: $(echo "$SEEDEX_SERVICES" | tr ' ' '|')" \
+			"" \
+			"'$ACTION' acts on one service, so the service is required."
+		;;
+	esac
+	_fan_out "$ACTION" "$@"
+	;;
+esac
