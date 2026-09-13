@@ -5,7 +5,7 @@ SVC_NAME="vpn"
 SVC_SECTION="config"
 SVC_STORE_DIR="$SEEDEX_VPN_DIR"
 
-SVC_ACTIONS="start stop restart show enable disable remove export reset"
+SVC_ACTIONS="start stop restart show enable disable remove changes commit revert export reset"
 
 _vpn_entry() {
 	local subcmd="$1"
@@ -115,6 +115,9 @@ show [#|name]	List entries, or show one	List configs, or show one with its file
 enable [#|name]	Enable the service or an entry	Enable the service, or one config
 disable [#|name]	Disable the service or an entry	Disable the service (also at boot), or one config
 remove <#|name>	Remove an entry	Remove a config and stage its file for removal
+changes	Show pending UCI changes
+commit	Commit pending UCI changes
+revert	Revert pending UCI changes
 export	Print the configuration; restore it with 'sdx import'
 reset	Drop every entry and its stored data
 EOF
@@ -137,6 +140,9 @@ svc_dispatch() {
 	status) svc_status ;;
 	stop) svc_stop ;;
 	restart) svc_restart ;;
+	changes) svc_changes ;;
+	commit) svc_commit ;;
+	revert) svc_revert ;;
 	export) svc_export ;;
 	reset) svc_reset ;;
 	*) return 127 ;;

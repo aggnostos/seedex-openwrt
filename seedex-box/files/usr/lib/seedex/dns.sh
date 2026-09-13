@@ -4,7 +4,7 @@ SVC_NAME="dns"
 . /usr/lib/seedex/service.sh
 SVC_CONFIG_KEYS="upstream resolver intercept"
 
-SVC_ACTIONS="start stop restart enable disable config"
+SVC_ACTIONS="start stop restart enable disable config changes commit revert"
 
 svc_status() {
 	local upstream resolver intercept
@@ -31,6 +31,9 @@ restart	Restart the service
 enable	Enable the service
 disable	Disable the service (also at boot)
 config	Manage service settings	Manage service settings: show, get <key>, set k=v ...
+changes	Show pending UCI changes
+commit	Commit pending UCI changes
+revert	Revert pending UCI changes
 EOH
 }
 
@@ -43,6 +46,9 @@ svc_dispatch() {
 	status) svc_status ;;
 	stop) svc_stop ;;
 	restart) svc_restart ;;
+	changes) svc_changes ;;
+	commit) svc_commit ;;
+	revert) svc_revert ;;
 	enable) svc_enable ;;
 	disable) svc_disable ;;
 	config) svc_config "$@" ;;

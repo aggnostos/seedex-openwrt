@@ -281,6 +281,7 @@ cmd_help() {
 	echo "  start | stop | restart        Control the service now"
 	echo "  enable | disable              Keep the service on or off across reboots"
 	echo "  config                        Service settings: show, get <key>, set k=v ..."
+	echo "  changes | commit | revert     Pending UCI changes of the service"
 	echo
 	section "Entries (rules in router, configs in vpn and proxy):"
 	echo "  show [#|name]                 List entries, or show one"
@@ -298,8 +299,7 @@ cmd_help() {
 	echo "  help                          This text"
 	echo
 	echo "Changes made by add, update, enable, disable, remove, import and config"
-	echo "stay pending in UCI: review with 'uci changes', apply with 'uci commit'"
-	echo "and 'sdx <service> restart'."
+	echo "stay pending until 'sdx commit' (or 'uci commit'); 'sdx restart' applies them."
 }
 
 cmd_svc_help() {
@@ -361,6 +361,9 @@ version)
 	;;
 help | -h | --help)
 	cmd_help
+	;;
+start | stop | restart)
+	/etc/init.d/seedex "$1"
 	;;
 *)
 	ACTION="$1"

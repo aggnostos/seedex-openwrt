@@ -272,6 +272,25 @@ svc_config() {
 	_module_config "$SVC_ID" main "$SVC_CONFIG_KEYS" "$@"
 }
 
+svc_changes() {
+	local diff
+	diff=$(uci changes "$SVC_ID" 2>/dev/null)
+	[ -n "$diff" ] || return "$SVC_NOOP"
+	printf '%s\n' "$diff"
+}
+
+svc_commit() {
+	[ -n "$(uci changes "$SVC_ID" 2>/dev/null)" ] || return "$SVC_NOOP"
+	uci commit "$SVC_ID"
+	echo "committed $SVC_ID"
+}
+
+svc_revert() {
+	[ -n "$(uci changes "$SVC_ID" 2>/dev/null)" ] || return "$SVC_NOOP"
+	uci revert "$SVC_ID"
+	echo "reverted $SVC_ID"
+}
+
 svc_export() {
 	_export_configs "$SVC_ID" "$SVC_SECTION" "$SVC_NAME"
 }

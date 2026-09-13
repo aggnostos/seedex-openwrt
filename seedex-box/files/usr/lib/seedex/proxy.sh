@@ -6,7 +6,7 @@ SVC_SECTION="config"
 SVC_CONFIG_KEYS="log_level urltest_interval"
 SVC_STORE_DIR="$SEEDEX_PROXY_DIR"
 
-SVC_ACTIONS="start stop restart show enable disable remove config export reset"
+SVC_ACTIONS="start stop restart show enable disable remove config changes commit revert export reset"
 
 _proxy_entry() {
 	local subcmd="$1"
@@ -113,6 +113,9 @@ enable [#|name]	Enable the service or an entry	Enable the service, or one config
 disable [#|name]	Disable the service or an entry	Disable the service (also at boot), or one config
 remove <#|name>	Remove an entry	Remove a config and stage its file for removal
 config	Manage service settings	Manage service settings: show, get <key>, set k=v ...
+changes	Show pending UCI changes
+commit	Commit pending UCI changes
+revert	Revert pending UCI changes
 export	Print the configuration; restore it with 'sdx import'
 reset	Drop every entry and its stored data
 EOF
@@ -135,6 +138,9 @@ svc_dispatch() {
 	status) svc_status ;;
 	stop) svc_stop ;;
 	restart) svc_restart ;;
+	changes) svc_changes ;;
+	commit) svc_commit ;;
+	revert) svc_revert ;;
 	config) svc_config "$@" ;;
 	export) svc_export ;;
 	reset) svc_reset ;;
