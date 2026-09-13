@@ -33,7 +33,9 @@ start() {
 		[ -x "/etc/init.d/$svc" ] && /etc/init.d/$svc start
 	done
 
-	_wait_for_ifaces
+	if seedex_service_enabled vpn || seedex_service_enabled proxy; then
+		_wait_for_ifaces
+	fi
 
 	if seedex_service_enabled router && [ -x /etc/init.d/seedex-router ]; then
 		/etc/init.d/seedex-router start
