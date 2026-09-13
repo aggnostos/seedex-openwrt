@@ -3,9 +3,8 @@
     "description": "Grant access to Seedex",
     "read": {
       "ubus": {
-        "luci.seedex": [ "status", "file", "logs" ]
-      },
-      "uci": [ "seedex-vpn", "seedex-proxy", "seedex-router", "seedex-dns" ]
+        "luci.seedex": [ "status", "config", "file", "logs" ]
+      }
     },
     "write": {
       "ubus": {

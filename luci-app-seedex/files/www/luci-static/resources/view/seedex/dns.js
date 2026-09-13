@@ -1,12 +1,10 @@
 'use strict';
 'require view';
-'require uci';
 'require poll';
 'require dom';
 'require seedex.api as api';
 
 var SVC = 'dns';
-var CONFIG = 'seedex-dns';
 
 var SETTINGS = [
 	{ key: 'upstream', label: _('Upstream'),
@@ -26,19 +24,21 @@ return view.extend({
 	handleReset: null,
 
 	load: function() {
-		return Promise.all([ api.status(), uci.load(CONFIG) ]);
+		return Promise.all([ api.status(), api.config(SVC) ]);
 	},
 
 	refresh: function() {
 		var self = this;
-		return Promise.all([ api.status(), api.reloadConfig(CONFIG) ]).then(function(r) {
+		return Promise.all([ api.status(), api.config(SVC) ]).then(function(r) {
 			self.status = r[0];
+			self.values = r[1];
 			dom.content(self.body, self.renderBody());
 		}, api.fail);
 	},
 
 	render: function(data) {
 		this.status = data[0];
+		this.values = data[1];
 		this.body = E('div', {}, this.renderBody());
 		poll.add(L.bind(this.refresh, this), 10);
 		return E('div', {}, [
@@ -51,7 +51,8 @@ return view.extend({
 		var refresh = L.bind(this.refresh, this);
 		return [
 			api.serviceHeader(SVC, this.status, refresh, this),
-			api.settingsCard(SVC, SETTINGS, refresh, this)
+			api.pendingBanner(SVC, this.status, refresh, this),
+			api.settingsCard(SVC, SETTINGS, this.values, refresh, this)
 		];
 	}
 });

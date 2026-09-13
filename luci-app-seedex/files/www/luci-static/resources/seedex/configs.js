@@ -1,7 +1,6 @@
 'use strict';
 'require baseclass';
 'require view';
-'require uci';
 'require ui';
 'require poll';
 'require dom';
@@ -10,7 +9,6 @@
 return baseclass.extend({
 	create: function(opts) {
 		var svc = opts.svc;
-		var config = 'seedex-' + svc;
 		var entrySettings = opts.entrySettings || [];
 
 		return view.extend({
@@ -19,19 +17,21 @@ return baseclass.extend({
 			handleReset: null,
 
 			load: function() {
-				return Promise.all([ api.status(), uci.load(config) ]);
+				return Promise.all([ api.status(), api.config(svc) ]);
 			},
 
 			refresh: function() {
 				var self = this;
-				return Promise.all([ api.status(), api.reloadConfig(config) ]).then(function(r) {
+				return Promise.all([ api.status(), api.config(svc) ]).then(function(r) {
 					self.status = r[0];
+					self.values = r[1];
 					dom.content(self.body, self.renderBody());
 				}, api.fail);
 			},
 
 			render: function(data) {
 				this.status = data[0];
+				this.values = data[1];
 				this.body = E('div', {}, this.renderBody());
 				poll.add(L.bind(this.refresh, this), 10);
 				return E('div', {}, [
@@ -44,8 +44,9 @@ return baseclass.extend({
 				var refresh = L.bind(this.refresh, this);
 				return [
 					api.serviceHeader(svc, this.status, refresh, this),
+					api.pendingBanner(svc, this.status, refresh, this),
 					this.renderConfigs(refresh),
-					opts.settings.length ? api.settingsCard(svc, opts.settings, refresh, this) : ''
+					opts.settings.length ? api.settingsCard(svc, opts.settings, this.values, refresh, this) : ''
 				];
 			},
 
@@ -55,7 +56,7 @@ return baseclass.extend({
 
 			renderConfigs: function(refresh) {
 				var self = this;
-				var rows = uci.sections(config, 'config').map(function(s) {
+				var rows = api.sections(self.values, 'config').map(function(s) {
 					var name = self.entryName(s);
 					var enabled = s.enabled == '1';
 					var cells = [ api.mark(enabled), name ];

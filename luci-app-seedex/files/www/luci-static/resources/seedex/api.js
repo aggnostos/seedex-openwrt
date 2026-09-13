@@ -2,7 +2,6 @@
 'require baseclass';
 'require rpc';
 'require ui';
-'require uci';
 
 var callStatus = rpc.declare({
 	object: 'luci.seedex',
@@ -21,6 +20,13 @@ var callImport = rpc.declare({
 	object: 'luci.seedex',
 	method: 'import',
 	params: [ 'name', 'content' ],
+	reject: true
+});
+
+var callConfig = rpc.declare({
+	object: 'luci.seedex',
+	method: 'config',
+	params: [ 'svc' ],
 	reject: true
 });
 
@@ -63,9 +69,20 @@ return baseclass.extend({
 		return callImport(name, content).then(unwrap);
 	},
 
-	reloadConfig: function(config) {
-		uci.unload(config);
-		return uci.load(config);
+	config: function(svc) {
+		return callConfig(svc).then(function(res) {
+			return (res && res.values) || {};
+		});
+	},
+
+	sections: function(values, type) {
+		return Object.keys(values).map(function(sid) {
+			return values[sid];
+		}).filter(function(s) {
+			return s['.type'] == type;
+		}).sort(function(a, b) {
+			return (a['.index'] || 0) - (b['.index'] || 0);
+		});
 	},
 
 	notify: function(msg, kind) {
@@ -172,13 +189,33 @@ return baseclass.extend({
 		]);
 	},
 
-	settingsCard: function(svc, keys, refresh, ctx) {
+	pendingBanner: function(svc, status, refresh, ctx) {
 		var self = this;
-		var config = 'seedex-' + svc;
+		var lines = (status.pending || {})[svc];
+		if (!lines || !lines.length)
+			return '';
+		var act = function(action) {
+			return function() {
+				return self.run(svc, action).catch(self.fail).then(refresh);
+			};
+		};
+		return E('div', { 'class': 'alert-message warning' }, [
+			E('h4', {}, _('Pending changes')),
+			E('pre', {}, lines.join('\n')),
+			E('p', {}, _('They take effect at the next restart; commit keeps them across reboots.')),
+			self.button(_('Commit'), 'cbi-button-positive', act('commit'), ctx),
+			' ',
+			self.button(_('Revert'), 'cbi-button-negative', act('revert'), ctx)
+		]);
+	},
+
+	settingsCard: function(svc, keys, values, refresh, ctx) {
+		var self = this;
+		var main = values.main || {};
 		var inputs = {};
 
 		var rows = keys.map(function(k) {
-			var current = uci.get(config, 'main', k.key);
+			var current = main[k.key];
 			inputs[k.key] = k.options ? self.select(current || '', k.options)
 			                          : self.input(current, k.placeholder);
 			inputs[k.key].setAttribute('data-current', current || '');

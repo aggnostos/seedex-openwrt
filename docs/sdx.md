@@ -32,9 +32,9 @@ order: DNS first, then the tunnels, then the router once a tunnel is up.
 
 ### `sdx <service> changes` / `commit` / `revert`
 
-Pending changes of the service: show them, write them to disk, or throw them
-away. `commit` is what `uci commit seedex-<service>` does; the service picks
-the changes up at the next `restart`.
+Pending changes of the service: show them, write them to disk so they survive
+a reboot, or throw them away. `commit` is `uci commit seedex-<service>`; a
+`restart` applies pending changes whether committed or not.
 
 ### `sdx <service> enable` / `disable`
 

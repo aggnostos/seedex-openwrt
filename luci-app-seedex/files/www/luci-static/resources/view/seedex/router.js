@@ -1,13 +1,11 @@
 'use strict';
 'require view';
-'require uci';
 'require ui';
 'require poll';
 'require dom';
 'require seedex.api as api';
 
 var SVC = 'router';
-var CONFIG = 'seedex-router';
 
 var SETTINGS = [
 	{ key: 'default_route', label: _('Default route'),
@@ -31,19 +29,21 @@ return view.extend({
 	handleReset: null,
 
 	load: function() {
-		return Promise.all([ api.status(), uci.load(CONFIG) ]);
+		return Promise.all([ api.status(), api.config(SVC) ]);
 	},
 
 	refresh: function() {
 		var self = this;
-		return Promise.all([ api.status(), api.reloadConfig(CONFIG) ]).then(function(r) {
+		return Promise.all([ api.status(), api.config(SVC) ]).then(function(r) {
 			self.status = r[0];
+			self.values = r[1];
 			dom.content(self.body, self.renderBody());
 		}, api.fail);
 	},
 
 	render: function(data) {
 		this.status = data[0];
+		this.values = data[1];
 		this.body = E('div', {}, this.renderBody());
 		poll.add(L.bind(this.refresh, this), 10);
 		return E('div', {}, [
@@ -56,14 +56,15 @@ return view.extend({
 		var refresh = L.bind(this.refresh, this);
 		return [
 			api.serviceHeader(SVC, this.status, refresh, this),
+			api.pendingBanner(SVC, this.status, refresh, this),
 			this.renderRules(refresh),
-			api.settingsCard(SVC, SETTINGS, refresh, this)
+			api.settingsCard(SVC, SETTINGS, this.values, refresh, this)
 		];
 	},
 
 	renderRules: function(refresh) {
 		var self = this;
-		var rows = uci.sections(CONFIG, 'rule').map(function(s) {
+		var rows = api.sections(self.values, 'rule').map(function(s) {
 			var name = s.name || s['.name'];
 			var enabled = s.enabled == '1';
 			var domains = L.toArray(s.domain).length;

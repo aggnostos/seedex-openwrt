@@ -27,15 +27,34 @@ _run() {
 	rm -f "$err"
 }
 
+_pending() {
+	local svc
+	for svc in $SERVICES; do
+		uci changes "seedex-$svc" 2>/dev/null |
+			jq -R -s --arg svc "$svc" '{($svc): (split("\n") | map(select(length > 0)))}'
+	done | jq -s 'add // {}'
+}
+
 do_status() {
 	local svc running=""
 	for svc in $SERVICES; do
 		running="$running $svc $(seedex_service_up "$svc" && echo true || echo false)"
 	done
-	jq -n --arg text "$(sdx 2>&1)" --arg running "$running" '{
+	jq -n --arg text "$(sdx 2>&1)" --arg running "$running" --argjson pending "$(_pending)" '{
 		text: $text,
-		running: ($running | split(" ") | map(select(length > 0)) | [range(0; length; 2) as $i | {key: .[$i], value: (.[$i + 1] == "true")}] | from_entries)
+		running: ($running | split(" ") | map(select(length > 0)) | [range(0; length; 2) as $i | {key: .[$i], value: (.[$i + 1] == "true")}] | from_entries),
+		pending: $pending
 	}'
+}
+
+do_config() {
+	local svc
+	svc=$(_field svc)
+	case "$svc" in
+	vpn | proxy | router | dns) ;;
+	*) _error "unknown service: $svc" ;;
+	esac
+	ubus call uci get "{\"config\":\"seedex-$svc\"}" 2>/dev/null || echo '{"values":{}}'
 }
 
 do_run() {
@@ -119,6 +138,7 @@ list)
 	cat <<'JSON'
 {
   "status": {},
+  "config": { "svc": "str" },
   "run": { "svc": "str", "action": "str", "args": [ "str" ], "stdin": "str" },
   "import": { "name": "str", "content": "str" },
   "file": { "svc": "str", "path": "str" },
@@ -132,6 +152,7 @@ call)
 	eval "set -- $(printf '%s' "$INPUT" | jq -r '(.args // []) | map(tostring | @sh) | join(" ")')"
 	case "$METHOD" in
 	status) do_status ;;
+	config) do_config ;;
 	run) do_run "$@" ;;
 	import) do_import ;;
 	file) do_file ;;
