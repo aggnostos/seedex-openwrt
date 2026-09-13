@@ -344,7 +344,8 @@ EOF
 }
 
 _refresh_nft_sets() {
-	_collect_endpoint_ips >"${IPS_DIR}/endpoints.ips"
+	_collect_endpoint_ips 4 >"${IPS_DIR}/endpoints.ips"
+	_collect_endpoint_ips 6 >"${IPS_DIR}/endpoints.ips6"
 
 	local set
 	for set in endpoint_ips "$NFT_OVERLAY_SET" "$NFT_DIRECT_SET" block_ips \
