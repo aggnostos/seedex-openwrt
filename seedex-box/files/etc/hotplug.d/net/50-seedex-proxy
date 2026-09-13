@@ -1,0 +1,10 @@
+#!/bin/sh
+
+. /usr/lib/seedex/common.sh
+
+[ "$DEVICENAME" = "$SEEDEX_PROXY_IFACE" ] || exit 0
+
+case "$ACTION" in
+add) /etc/init.d/seedex-proxy attach ;;
+remove) /etc/init.d/seedex-proxy detach ;;
+esac
