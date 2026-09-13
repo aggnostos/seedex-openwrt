@@ -156,8 +156,11 @@ EOT
 
 _disable_stock_proxy() {
 	[ -x /etc/init.d/https-dns-proxy ] || return 0
-	/etc/init.d/https-dns-proxy stop 2>/dev/null
-	/etc/init.d/https-dns-proxy disable 2>/dev/null
+	if /etc/init.d/https-dns-proxy running >/dev/null 2>&1; then
+		/etc/init.d/https-dns-proxy stop >/dev/null 2>&1
+		log_info "stopped the stock https-dns-proxy service"
+	fi
+	/etc/init.d/https-dns-proxy disable >/dev/null 2>&1
 	nft delete table inet https_dns_proxy_notrack 2>/dev/null
 
 	local sec backup_noresolv backup_servers s
@@ -216,6 +219,7 @@ start_service() {
 	fi
 
 	_write_upstream_ips
+	seedex_dns_bootstrap_refresh
 	rm -f "${DNSMASQ_CONF%/*}/seedex-router.conf"
 	if _write_dnsmasq_conf; then
 		/etc/init.d/dnsmasq restart 2>/dev/null

@@ -515,6 +515,11 @@ seedex_dns_upstream_ips() {
 	fi
 }
 
+seedex_dns_bootstrap_refresh() {
+	nft list set inet seedex_router dns_bootstrap 2>/dev/null | grep -qF elements || return 0
+	seedex_dns_bootstrap 1
+}
+
 seedex_dns_bootstrap() {
 	local ip v4="" v6=""
 	nft flush set inet seedex_router dns_bootstrap 2>/dev/null

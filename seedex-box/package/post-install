@@ -8,8 +8,8 @@ mkdir -p /etc/seedex/vpn /etc/seedex/proxy
 chmod 700 /etc/seedex/vpn /etc/seedex/proxy
 
 if [ -x /etc/init.d/https-dns-proxy ]; then
-	/etc/init.d/https-dns-proxy disable 2>/dev/null || true
-	/etc/init.d/https-dns-proxy stop 2>/dev/null || true
+	/etc/init.d/https-dns-proxy disable >/dev/null 2>&1 || true
+	/etc/init.d/https-dns-proxy stop >/dev/null 2>&1 || true
 fi
 
 /etc/init.d/seedex enable 2>/dev/null || true
