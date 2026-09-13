@@ -1,0 +1,16 @@
+{
+  "luci-app-seedex": {
+    "description": "Grant access to Seedex",
+    "read": {
+      "ubus": {
+        "luci.seedex": [ "status", "file", "logs" ]
+      },
+      "uci": [ "seedex-vpn", "seedex-proxy", "seedex-router", "seedex-dns" ]
+    },
+    "write": {
+      "ubus": {
+        "luci.seedex": [ "run", "import" ]
+      }
+    }
+  }
+}

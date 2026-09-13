@@ -1,0 +1,142 @@
+#!/bin/sh
+
+. /usr/lib/seedex/common.sh
+
+SERVICES="router vpn proxy dns"
+
+_field() {
+	printf '%s' "$INPUT" | jq -r --arg k "$1" '.[$k] // "" | tostring'
+}
+
+_error() {
+	jq -n --arg error "$1" '{code: 2, output: "", error: $error}'
+	exit 0
+}
+
+_run() {
+	local err out rc
+	err=$(mktemp)
+	if [ -n "$STDIN" ]; then
+		out=$(printf '%s\n' "$STDIN" | sdx "$@" 2>"$err")
+	else
+		out=$(sdx "$@" 2>"$err" </dev/null)
+	fi
+	rc=$?
+	jq -n --argjson code "$rc" --arg output "$out" --rawfile error "$err" \
+		'{code: $code, output: $output, error: ($error | rtrimstr("\n"))}'
+	rm -f "$err"
+}
+
+do_status() {
+	local svc running=""
+	for svc in $SERVICES; do
+		running="$running $svc $(seedex_service_up "$svc" && echo true || echo false)"
+	done
+	jq -n --arg text "$(sdx 2>&1)" --arg running "$running" '{
+		text: $text,
+		running: ($running | split(" ") | map(select(length > 0)) | [range(0; length; 2) as $i | {key: .[$i], value: (.[$i + 1] == "true")}] | from_entries)
+	}'
+}
+
+do_run() {
+	local svc action
+	svc=$(_field svc)
+	action=$(_field action)
+	STDIN=$(_field stdin)
+
+	case "$svc" in
+	"" | vpn | proxy | router | dns) ;;
+	*) _error "unknown service: $svc" ;;
+	esac
+	case "$action" in
+	"" | *[!a-z_-]*) _error "invalid action" ;;
+	esac
+
+	if [ -n "$svc" ]; then
+		_run "$svc" "$action" "$@"
+	else
+		_run "$action" "$@"
+	fi
+}
+
+do_import() {
+	local name dir
+	name=$(_field name)
+	case "$name" in
+	"" | .* | */* | *[!A-Za-z0-9._-]*) _error "invalid config name" ;;
+	esac
+
+	dir=$(mktemp -d)
+	chmod 700 "$dir"
+	printf '%s' "$INPUT" | jq -r '.content // ""' >"$dir/$name"
+	[ -s "$dir/$name" ] || {
+		rm -rf "$dir"
+		_error "content required"
+	}
+	_run import "$dir/$name"
+	rm -rf "$dir"
+}
+
+do_file() {
+	local svc path dir source missing=false
+	svc=$(_field svc)
+	path=$(_field path)
+	case "$svc" in
+	vpn) dir="$SEEDEX_VPN_DIR" ;;
+	proxy) dir="$SEEDEX_PROXY_DIR" ;;
+	*) _error "unknown service: $svc" ;;
+	esac
+	case "$path" in
+	"$dir"/*) ;;
+	*) _error "path is outside $dir" ;;
+	esac
+	case "${path#"$dir"/}" in
+	*/* | .*) _error "invalid path" ;;
+	esac
+
+	source="$path"
+	[ -f "$path" ] || {
+		missing=true
+		source=/dev/null
+	}
+	jq -n --arg path "$path" --argjson missing "$missing" --rawfile content "$source" \
+		'{path: $path, missing: $missing, content: $content}'
+}
+
+do_logs() {
+	local svc
+	svc=$(_field svc)
+	case "$svc" in
+	"") _run logs ;;
+	vpn | proxy | router) _run logs -e "seedex-$svc" ;;
+	*) _error "unknown service: $svc" ;;
+	esac
+}
+
+METHOD="${2:-}"
+case "$1" in
+list)
+	cat <<'JSON'
+{
+  "status": {},
+  "run": { "svc": "str", "action": "str", "args": [ "str" ], "stdin": "str" },
+  "import": { "name": "str", "content": "str" },
+  "file": { "svc": "str", "path": "str" },
+  "logs": { "svc": "str" }
+}
+JSON
+	;;
+call)
+	INPUT=$(cat)
+	STDIN=""
+	eval "set -- $(printf '%s' "$INPUT" | jq -r '(.args // []) | map(tostring | @sh) | join(" ")')"
+	case "$METHOD" in
+	status) do_status ;;
+	run) do_run "$@" ;;
+	import) do_import ;;
+	file) do_file ;;
+	logs) do_logs ;;
+	*) exit 1 ;;
+	esac
+	;;
+esac

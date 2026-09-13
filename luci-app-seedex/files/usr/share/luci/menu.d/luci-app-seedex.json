@@ -1,0 +1,66 @@
+{
+  "admin/services/seedex": {
+    "title": "Seedex",
+    "order": 30,
+    "action": {
+      "type": "firstchild"
+    },
+    "depends": {
+      "acl": [ "luci-app-seedex" ]
+    }
+  },
+
+  "admin/services/seedex/status": {
+    "title": "Status",
+    "order": 10,
+    "action": {
+      "type": "view",
+      "path": "seedex/status"
+    }
+  },
+
+  "admin/services/seedex/vpn": {
+    "title": "VPN",
+    "order": 20,
+    "action": {
+      "type": "view",
+      "path": "seedex/vpn"
+    }
+  },
+
+  "admin/services/seedex/proxy": {
+    "title": "Proxy",
+    "order": 30,
+    "action": {
+      "type": "view",
+      "path": "seedex/proxy"
+    }
+  },
+
+  "admin/services/seedex/router": {
+    "title": "Router",
+    "order": 40,
+    "action": {
+      "type": "view",
+      "path": "seedex/router"
+    }
+  },
+
+  "admin/services/seedex/dns": {
+    "title": "DNS",
+    "order": 45,
+    "action": {
+      "type": "view",
+      "path": "seedex/dns"
+    }
+  },
+
+  "admin/services/seedex/system": {
+    "title": "System",
+    "order": 50,
+    "action": {
+      "type": "view",
+      "path": "seedex/system"
+    }
+  }
+}
