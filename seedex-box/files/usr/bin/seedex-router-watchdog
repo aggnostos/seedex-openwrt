@@ -1,0 +1,207 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+TAG="seedex-router"
+. /usr/lib/seedex/common.sh
+
+STATE_FILE="$SEEDEX_RUNDIR/router/active_iface"
+
+CONN_FILE="$SEEDEX_RUNDIR/router/connectivity.state"
+
+LISTS_DIR="$SEEDEX_RUNDIR/router/lists"
+REFRESH_DIR="$SEEDEX_RUNDIR/router/refresh"
+
+ROUTE_TABLE="$SEEDEX_ROUTE_TABLE"
+
+_load_config() {
+	config_load seedex-router
+	config_get INTERVAL main watchdog_interval '30'
+	config_get PROBE_URL main watchdog_url 'https://www.gstatic.com/generate_204'
+	config_get TIMEOUT main watchdog_timeout '5'
+	config_get DEFAULT_ROUTE main default_route 'direct'
+	[ "$INTERVAL" -gt 0 ] 2>/dev/null || INTERVAL=30
+	[ "$TIMEOUT" -gt 0 ] 2>/dev/null || TIMEOUT=5
+	[ -n "$PROBE_URL" ] || PROBE_URL='https://www.gstatic.com/generate_204'
+}
+
+_load_config
+
+get_active() {
+	[ -f "$STATE_FILE" ] && cat "$STATE_FILE" || echo ""
+}
+
+set_active() {
+	echo "$1" >"$STATE_FILE"
+}
+
+route_dev() {
+	ip route show default table "$ROUTE_TABLE" 2>/dev/null |
+		awk '{ for (i = 1; i < NF; i++) if ($i == "dev") print $(i + 1) }'
+}
+
+switch_to() {
+	local iface="$1" current
+	current=$(route_dev)
+
+	[ "$iface" = "$current" ] && return 0
+
+	ip route replace default dev "$iface" table "$ROUTE_TABLE"
+	seedex_overlay_route6 "$iface"
+	set_active "$iface"
+
+	if [ -z "$current" ]; then
+		log_info "watchdog: installed route via $iface (table was empty)"
+	else
+		log_info "watchdog: switched to $iface (was: $current)"
+	fi
+}
+
+SWITCH_MIN_GAIN_PCT=10
+SWITCH_MIN_GAIN_MS=20
+
+pick_active() {
+	local results="$1" current best best_rtt current_rtt
+	current=$(get_active)
+	best=$(echo "$results" | awk 'NF == 2 && (!found || $2 + 0 < min) { min = $2 + 0; line = $0; found = 1 } END { print line }')
+	[ -n "$best" ] || return 0
+	best_rtt="${best#* }"
+	best="${best%% *}"
+	current_rtt=$(echo "$results" | awk -v i="$current" 'NF == 2 && $1 == i { print $2; exit }')
+	if [ -n "$current_rtt" ] && [ "$current" != "$best" ] &&
+		{ [ "$((best_rtt * 100))" -gt "$((current_rtt * (100 - SWITCH_MIN_GAIN_PCT)))" ] ||
+			[ "$((current_rtt - best_rtt))" -lt "$SWITCH_MIN_GAIN_MS" ]; }; then
+		echo "$current"
+	else
+		echo "$best"
+	fi
+}
+
+write_connectivity() {
+	local results="$1" active="$2" uplink="$3"
+	local tmp="${CONN_FILE}.new"
+	{
+		printf 'ts %s\n' "$(date +%s)"
+		printf 'interval %s\n' "$INTERVAL"
+		printf 'active %s\n' "$active"
+		printf 'uplink %s\n' "$uplink"
+		echo "$results" | awk 'NF >= 1 {
+			if (NF >= 2) printf "iface %s 1 %s\n", $1, $2
+			else         printf "iface %s 0\n",    $1
+		}'
+	} >"$tmp" && mv "$tmp" "$CONN_FILE"
+}
+
+_parse_interval() {
+	local val="$1"
+	case "$val" in
+	*d) echo $((${val%d} * 86400)) ;;
+	*h) echo $((${val%h} * 3600)) ;;
+	*m) echo $((${val%m} * 60)) ;;
+	*s) echo "${val%s}" ;;
+	*[0-9]) echo "$val" ;;
+	*) echo "0" ;;
+	esac
+}
+
+check_list_refresh() {
+	mkdir -p "$REFRESH_DIR"
+
+	_check_rule_refresh() {
+		local section="$1"
+		local enabled type list_url list_refresh
+
+		config_get_bool enabled "$section" enabled 0
+		[ "$enabled" -eq 1 ] || return 0
+
+		config_get type "$section" type ''
+		[ "$type" != "$DEFAULT_ROUTE" ] || return 0
+
+		config_get list_url "$section" list_url ''
+		[ -n "$list_url" ] || return 0
+
+		config_get list_refresh "$section" list_refresh ''
+		[ -n "$list_refresh" ] || return 0
+
+		local interval_sec
+		interval_sec=$(_parse_interval "$list_refresh")
+		[ "$interval_sec" -gt 0 ] 2>/dev/null || return 0
+
+		local ts_file="${REFRESH_DIR}/${section}.ts"
+		local now
+		now=$(date +%s)
+
+		if [ -f "$ts_file" ]; then
+			local last
+			last=$(cat "$ts_file")
+			local elapsed=$((now - last))
+			[ "$elapsed" -lt "$interval_sec" ] && return 0
+		fi
+
+		local dest="${LISTS_DIR}/${section}.txt"
+		local tmp="${dest}.new"
+
+		log_debug "refreshing list '$section' from '$list_url'"
+		if curl -fsSL --max-time 30 --max-filesize 10485760 -o "$tmp" "$list_url" 2>/dev/null; then
+			if [ -f "$dest" ] && cmp -s "$tmp" "$dest"; then
+				rm -f "$tmp"
+				log_debug "list '$section' unchanged"
+			else
+				mv "$tmp" "$dest"
+				local count
+				count=$(wc -l <"$dest")
+				log_info "refreshed list '$section' ($count entries)"
+				LISTS_CHANGED=1
+			fi
+			echo "$now" >"$ts_file"
+		else
+			log_warn "failed to refresh list '$section'"
+			rm -f "$tmp"
+		fi
+	}
+
+	LISTS_CHANGED=0
+	config_foreach _check_rule_refresh rule
+
+	if [ "$LISTS_CHANGED" = "1" ]; then
+		log_info "lists changed, reapplying rules"
+		/etc/init.d/seedex-router reapply
+	fi
+}
+
+cleanup() {
+	log_info "watchdog stopped"
+	exit 0
+}
+
+trap cleanup TERM INT
+
+mkdir -p "$(dirname "$STATE_FILE")" "$LISTS_DIR" "$REFRESH_DIR"
+
+log_info "watchdog started (interval=${INTERVAL}s)"
+
+write_connectivity "" "" 0
+
+sleep 5 &
+wait $!
+
+while true; do
+	_load_config
+
+	results=$(seedex_probe_all_ifaces "$PROBE_URL" "$TIMEOUT")
+	best=$(pick_active "$results")
+
+	if [ -n "$best" ]; then
+		switch_to "$best"
+		seedex_dns_bootstrap 0
+	else
+		log_warn "watchdog: all interfaces unreachable"
+		seedex_dns_bootstrap 1
+	fi
+
+	write_connectivity "$results" "$best" "$(seedex_probe_uplink "$PROBE_URL" "$TIMEOUT")"
+	check_list_refresh
+
+	sleep "$INTERVAL" &
+	wait $!
+done
