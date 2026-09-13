@@ -299,7 +299,8 @@ cmd_help() {
 	echo "  help                          This text"
 	echo
 	echo "Changes made by add, update, enable, disable, remove, import and config"
-	echo "stay pending until 'sdx commit' (or 'uci commit'); 'sdx restart' applies them."
+	echo "take effect at the next restart; 'sdx commit' keeps them across reboots,"
+	echo "'sdx revert' drops them."
 }
 
 cmd_svc_help() {

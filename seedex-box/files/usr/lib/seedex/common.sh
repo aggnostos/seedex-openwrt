@@ -222,12 +222,11 @@ seedex_prune_configs() {
 	for f in "$dir"/*; do
 		[ -f "$f" ] || continue
 		case " $keep " in
-		*" ${f##*/} "*) ;;
-		*)
-			rm -f "$f"
-			log_info "removed unreferenced config ${f##*/}"
-			;;
+		*" ${f##*/} "*) continue ;;
 		esac
+		grep -qF "'$f'" "/etc/config/$config" 2>/dev/null && continue
+		rm -f "$f"
+		log_info "removed unreferenced config ${f##*/}"
 	done
 }
 
