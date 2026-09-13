@@ -62,20 +62,14 @@ Everything above is also in LuCI under Services → Seedex.
 You need a router running OpenWrt 25.x or newer with outbound internet access.
 
 ```sh
-wget -O install.sh https://<feed>/install.sh
-SEEDEX_FEED=https://<feed> sh install.sh
+wget -O install.sh https://aggnostos.github.io/seedex-openwrt/install.sh
+SEEDEX_FEED=https://aggnostos.github.io/seedex-openwrt sh install.sh
 ```
 
 This adds the Seedex package feed, installs `seedex-box` with the `sdx`
 command and `luci-app-seedex` for LuCI (`--no-luci` to skip it), and starts
 the DNS service. Tunnels and routing start once you import a config from your
-server:
-
-```sh
-sdx import my-server.conf
-uci commit
-sdx restart
-```
+server — see [what to do next](docs/sdx.md).
 
 ## Server
 
