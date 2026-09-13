@@ -1,0 +1,539 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+
+TAG="seedex-router"
+. /usr/lib/seedex/common.sh
+. /lib/functions.sh
+
+WATCHDOG=/usr/bin/seedex-router-watchdog
+
+NFT_TABLE="$SEEDEX_ROUTER_NFT_TABLE"
+
+NFT_OVERLAY_SET="overlay_ips"
+NFT_DIRECT_SET="direct_ips"
+
+NFT_OVERLAY_DYN="$SEEDEX_ROUTER_OVERLAY_DYN"
+NFT_DIRECT_DYN="$SEEDEX_ROUTER_DIRECT_DYN"
+
+NFT_OVERLAY_SET6="overlay_ips6"
+NFT_DIRECT_SET6="direct_ips6"
+NFT_OVERLAY_DYN6="${SEEDEX_ROUTER_OVERLAY_DYN}6"
+NFT_DIRECT_DYN6="${SEEDEX_ROUTER_DIRECT_DYN}6"
+
+ROUTER_RUNDIR="$SEEDEX_RUNDIR/router"
+LISTS_DIR="$ROUTER_RUNDIR/lists"
+IPS_DIR="$ROUTER_RUNDIR/ips"
+
+STATE_FILE="$ROUTER_RUNDIR/active_iface"
+
+RULE_PRIO=100
+
+_load_config() {
+	config_load seedex-router
+	config_get DEFAULT_ROUTE main default_route 'direct'
+	FWMARK="$SEEDEX_FWMARK"
+	ROUTE_TABLE="$SEEDEX_ROUTE_TABLE"
+	config_get PROBE_URL main watchdog_url 'https://www.gstatic.com/generate_204'
+	config_get PROBE_TIMEOUT main watchdog_timeout '5'
+	config_get_bool KILL_SWITCH main kill_switch 1
+}
+
+_load_interfaces() {
+	INTERFACES="$(seedex_active_ifaces | tr '\n' ' ')"
+	INTERFACES="${INTERFACES% }"
+	if [ -z "$INTERFACES" ]; then
+		log_warn "no interfaces registered"
+	fi
+}
+
+_endpoint_hosts() {
+	_endpoints_of() {
+		local uci_config="$1" type="$2" kind="$3"
+		local idx=0 enabled path
+
+		while uci -q get "${uci_config}.@${type}[$idx]" >/dev/null 2>&1; do
+			enabled=$(uci -q get "${uci_config}.@${type}[$idx].enabled")
+			path=$(uci -q get "${uci_config}.@${type}[$idx].config")
+			idx=$((idx + 1))
+
+			[ "$enabled" = "1" ] || continue
+			[ -n "$path" ] && [ -f "$path" ] || continue
+			seedex_config_endpoints "$path" "$kind"
+		done
+	}
+
+	{
+		_endpoints_of seedex-vpn config awg
+		_endpoints_of seedex-proxy config singbox
+	} | sort -u
+}
+
+_collect_endpoint_ips() {
+	local family="$1" host
+	for host in $(_endpoint_hosts); do
+		if echo "$host" | grep -qE "$IPV4_RE"; then
+			[ "$family" = 4 ] && echo "$host"
+		elif echo "$host" | grep -qE "$IPV6_RE"; then
+			[ "$family" = 6 ] && echo "$host"
+		else
+			seedex_resolve "$host" "$family" | head -1
+		fi
+	done | sort -u
+}
+
+COLLECTED=""
+_collect_item() {
+	COLLECTED="${COLLECTED} $1"
+}
+
+NFT_SET_CHUNK=1000
+
+load_nft_set() {
+	local setname="$1" ipfile="$2"
+	[ -f "$ipfile" ] || return 0
+	local count
+	count=$(wc -l <"$ipfile" | tr -d ' ')
+	[ "$count" -gt 0 ] 2>/dev/null || return 0
+	if awk -v tbl="$NFT_TABLE" -v set="$setname" -v chunk="$NFT_SET_CHUNK" '
+		NF {
+			if (n == 0) printf "add element inet %s %s { ", tbl, set
+			else printf ", "
+			printf "%s", $0
+			if (++n >= chunk) { print " }"; n = 0 }
+		}
+		END { if (n > 0) print " }" }
+	' "$ipfile" | nft -f - 2>/dev/null; then
+		log_debug "loaded $count entries into $setname"
+	else
+		log_err "failed to load entries into $setname"
+	fi
+}
+
+_type_active() {
+	[ "$1" = block ] || [ "$1" != "$DEFAULT_ROUTE" ]
+}
+
+download_lists() {
+	mkdir -p "$LISTS_DIR"
+
+	_download_rule_list() {
+		local section="$1"
+		local enabled type list_url
+
+		config_get_bool enabled "$section" enabled 0
+		[ "$enabled" -eq 1 ] || return 0
+
+		config_get type "$section" type ''
+		if ! _type_active "$type"; then
+			log_debug "rule '$section': type '$type' is inactive with default_route=$DEFAULT_ROUTE, skipped"
+			return 0
+		fi
+
+		config_get list_url "$section" list_url ''
+		[ -n "$list_url" ] || return 0
+
+		local dest="${LISTS_DIR}/${section}.txt"
+		local tmp="${dest}.new"
+		log_debug "downloading list '$list_url'"
+
+		if curl -fsSL --max-time 30 --max-filesize 10485760 -o "$tmp" "$list_url" 2>/dev/null; then
+			mv "$tmp" "$dest"
+			local count
+			count=$(wc -l <"$dest")
+			log_debug "downloaded $count entries from '$list_url'"
+		else
+			rm -f "$tmp"
+			if [ -f "$dest" ]; then
+				log_warn "failed to download '$list_url', keeping the previous copy"
+			else
+				log_warn "failed to download '$list_url'"
+			fi
+		fi
+	}
+
+	config_foreach _download_rule_list rule
+}
+
+RULE_TYPE_FILTER=""
+RULE_IPS_FILE=""
+
+IPV4_RE="$SEEDEX_IPV4_RE"
+IPV6_RE="$SEEDEX_IPV6_RE"
+DOMAIN_RE='^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$'
+
+_clean_list() {
+	sed 's/\r//;s/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//;s/^[0-9a-fA-F.:]\{1,\}[[:space:]]\{1,\}//' "$1" |
+		grep -vE '^$|^(0\.0\.0\.0|localhost|localhost\.localdomain|local|broadcasthost|ip6-[a-z]+)$'
+}
+
+_collect_rule_ips() {
+	local section="$1"
+	local enabled type
+
+	config_get_bool enabled "$section" enabled 0
+	[ "$enabled" -eq 1 ] || return 0
+
+	config_get type "$section" type ''
+	[ "$type" = "$RULE_TYPE_FILTER" ] || return 0
+
+	COLLECTED=""
+	config_list_foreach "$section" ip _collect_item
+	for addr in $COLLECTED; do
+		echo "$addr" >>"$RULE_IPS_FILE.all"
+	done
+	COLLECTED=""
+
+	local list_path=""
+	config_get list_path "$section" list_path ''
+	[ -z "$list_path" ] && {
+		[ -f "${LISTS_DIR}/${section}.txt" ] && list_path="${LISTS_DIR}/${section}.txt"
+	}
+	[ -n "$list_path" ] && [ -f "$list_path" ] || return 0
+
+	_clean_list "$list_path" >>"$RULE_IPS_FILE.all"
+	return 0
+}
+
+collect_rule_ips() {
+	local rule_type="$1"
+	mkdir -p "$IPS_DIR"
+	RULE_IPS_FILE="${IPS_DIR}/${rule_type}.ips"
+	: >"$RULE_IPS_FILE"
+	: >"${RULE_IPS_FILE}6"
+	: >"$RULE_IPS_FILE.all"
+
+	_type_active "$rule_type" || return 0
+
+	RULE_TYPE_FILTER="$rule_type"
+	config_foreach _collect_rule_ips rule
+
+	grep -E "$IPV4_RE" "$RULE_IPS_FILE.all" | sort -u >"$RULE_IPS_FILE"
+	grep -E "$IPV6_RE" "$RULE_IPS_FILE.all" | sort -u >"${RULE_IPS_FILE}6"
+	rm -f "$RULE_IPS_FILE.all"
+}
+
+_collect_rule_clients() {
+	local section="$1"
+	local enabled type
+
+	config_get_bool enabled "$section" enabled 0
+	[ "$enabled" -eq 1 ] || return 0
+
+	config_get type "$section" type ''
+	[ "$type" = "$RULE_TYPE_FILTER" ] || return 0
+
+	COLLECTED=""
+	config_list_foreach "$section" mac _collect_item
+	for addr in $COLLECTED; do
+		echo "$addr" >>"${IPS_DIR}/client_${type}.mac"
+	done
+	COLLECTED=""
+}
+
+collect_rule_clients() {
+	local rule_type="$1" f
+	f="${IPS_DIR}/client_${rule_type}.mac"
+	mkdir -p "$IPS_DIR"
+	: >"$f"
+	RULE_TYPE_FILTER="$rule_type"
+	config_foreach _collect_rule_clients rule
+	sort -u "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+}
+
+_load_client_sets() {
+	load_nft_set client_direct_mac "${IPS_DIR}/client_direct.mac"
+	load_nft_set client_overlay_mac "${IPS_DIR}/client_overlay.mac"
+}
+
+setup_nftables() {
+	log_debug "setting up nftables (default_route=$DEFAULT_ROUTE)"
+
+	nft delete table inet "$NFT_TABLE" 2>/dev/null
+
+	local ep_file="${IPS_DIR}/endpoints.ips"
+	_collect_endpoint_ips 4 >"$ep_file"
+	_collect_endpoint_ips 6 >"${ep_file}6"
+	local ep_count
+	ep_count=$(cat "$ep_file" "${ep_file}6" 2>/dev/null | wc -l | tr -d ' ')
+	[ "$ep_count" -gt 0 ] 2>/dev/null &&
+		log_debug "excluding $ep_count endpoint IPs from overlay"
+
+	local tail kill_chain=""
+	if [ "$DEFAULT_ROUTE" = "direct" ]; then
+		tail="ip daddr @${NFT_OVERLAY_SET} meta mark set ${FWMARK}
+    ip daddr @${NFT_OVERLAY_DYN} meta mark set ${FWMARK}
+    ip6 daddr @${NFT_OVERLAY_SET6} meta mark set ${FWMARK}
+    ip6 daddr @${NFT_OVERLAY_DYN6} meta mark set ${FWMARK}"
+	else
+		tail="meta mark set ${FWMARK}"
+	fi
+	if [ "$KILL_SWITCH" -eq 1 ]; then
+		kill_chain="chain killswitch {
+    type filter hook postrouting priority filter; policy accept;
+    meta mark ${FWMARK} oifname \"awg*\" accept
+    meta mark ${FWMARK} oifname \"${SEEDEX_PROXY_IFACE}\" accept
+    meta mark ${FWMARK} drop
+  }"
+		log_debug "kill switch armed"
+	fi
+
+	local rc=0
+	nft -f - <<EOF || rc=$?
+table inet ${NFT_TABLE} {
+  set ${NFT_OVERLAY_SET} { type ipv4_addr; flags interval; auto-merge; }
+  set ${NFT_DIRECT_SET} { type ipv4_addr; flags interval; auto-merge; }
+  set ${NFT_OVERLAY_DYN} { type ipv4_addr; flags interval; auto-merge; }
+  set ${NFT_DIRECT_DYN} { type ipv4_addr; flags interval; auto-merge; }
+  set endpoint_ips { type ipv4_addr; flags interval; auto-merge; }
+  set block_ips { type ipv4_addr; flags interval; auto-merge; }
+  set ${NFT_OVERLAY_SET6} { type ipv6_addr; flags interval; auto-merge; }
+  set ${NFT_DIRECT_SET6} { type ipv6_addr; flags interval; auto-merge; }
+  set ${NFT_OVERLAY_DYN6} { type ipv6_addr; flags interval; auto-merge; }
+  set ${NFT_DIRECT_DYN6} { type ipv6_addr; flags interval; auto-merge; }
+  set endpoint_ips6 { type ipv6_addr; flags interval; auto-merge; }
+  set block_ips6 { type ipv6_addr; flags interval; auto-merge; }
+  set dns_bootstrap { type ipv4_addr; }
+  set dns_bootstrap6 { type ipv6_addr; }
+  set client_direct_mac { type ether_addr; }
+  set client_overlay_mac { type ether_addr; }
+  chain prerouting {
+    type filter hook prerouting priority mangle; policy accept;
+    ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } accept
+    ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } accept
+    ip daddr @block_ips drop
+    ip6 daddr @block_ips6 drop
+    ip daddr @endpoint_ips accept
+    ip6 daddr @endpoint_ips6 accept
+    ether saddr @client_direct_mac accept
+    ether saddr @client_overlay_mac meta mark set ${FWMARK} accept
+    ip daddr @${NFT_DIRECT_SET} accept
+    ip daddr @${NFT_DIRECT_DYN} accept
+    ip6 daddr @${NFT_DIRECT_SET6} accept
+    ip6 daddr @${NFT_DIRECT_DYN6} accept
+    ${tail}
+  }
+  chain output {
+    type route hook output priority mangle; policy accept;
+    ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } accept
+    ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } accept
+    ip daddr @dns_bootstrap accept
+    ip6 daddr @dns_bootstrap6 accept
+    ip daddr @block_ips drop
+    ip6 daddr @block_ips6 drop
+    ip daddr @endpoint_ips accept
+    ip6 daddr @endpoint_ips6 accept
+    ip daddr @${NFT_DIRECT_SET} accept
+    ip daddr @${NFT_DIRECT_DYN} accept
+    ip6 daddr @${NFT_DIRECT_SET6} accept
+    ip6 daddr @${NFT_DIRECT_DYN6} accept
+    ${tail}
+  }
+  ${kill_chain}
+}
+EOF
+
+	if [ "$rc" -ne 0 ]; then
+		log_err "failed to create nftables table"
+		return 1
+	fi
+
+	_load_ip_sets
+	_load_client_sets
+	log_debug "nftables configured"
+}
+
+_refresh_nft_sets() {
+	_collect_endpoint_ips >"${IPS_DIR}/endpoints.ips"
+
+	local set
+	for set in endpoint_ips "$NFT_OVERLAY_SET" "$NFT_DIRECT_SET" block_ips \
+		endpoint_ips6 "$NFT_OVERLAY_SET6" "$NFT_DIRECT_SET6" block_ips6 \
+		client_direct_mac client_overlay_mac; do
+		nft flush set inet "$NFT_TABLE" "$set" 2>/dev/null
+	done
+	_load_ip_sets
+	_load_client_sets
+}
+
+_load_ip_sets() {
+	load_nft_set "endpoint_ips" "${IPS_DIR}/endpoints.ips"
+	load_nft_set "endpoint_ips6" "${IPS_DIR}/endpoints.ips6"
+	load_nft_set "$NFT_OVERLAY_SET" "${IPS_DIR}/overlay.ips"
+	load_nft_set "$NFT_OVERLAY_SET6" "${IPS_DIR}/overlay.ips6"
+	load_nft_set "$NFT_DIRECT_SET" "${IPS_DIR}/direct.ips"
+	load_nft_set "$NFT_DIRECT_SET6" "${IPS_DIR}/direct.ips6"
+	load_nft_set block_ips "${IPS_DIR}/block.ips"
+	load_nft_set block_ips6 "${IPS_DIR}/block.ips6"
+}
+
+teardown_nftables() {
+	nft delete table inet "$NFT_TABLE" 2>/dev/null
+	log_debug "nftables removed"
+}
+
+_rule_domains() {
+	local section="$1"
+	local enabled type
+
+	config_get_bool enabled "$section" enabled 0
+	[ "$enabled" -eq 1 ] || return 0
+
+	config_get type "$section" type ''
+	[ "$type" = "$RULE_TYPE_FILTER" ] || return 0
+
+	local list_path=""
+	config_get list_path "$section" list_path ''
+	[ -z "$list_path" ] && {
+		[ -f "${LISTS_DIR}/${section}.txt" ] && list_path="${LISTS_DIR}/${section}.txt"
+	}
+
+	mkdir -p "$IPS_DIR"
+	local raw="${IPS_DIR}/${section}.candidates"
+	{
+		COLLECTED=""
+		config_list_foreach "$section" domain _collect_item
+		for d in $COLLECTED; do
+			echo "$d"
+		done
+		COLLECTED=""
+
+		[ -n "$list_path" ] && [ -f "$list_path" ] &&
+			_clean_list "$list_path" | grep -vE "$IPV4_RE" | grep -vE "$IPV6_RE"
+	} >"$raw"
+
+	local total kept
+	total=$(wc -l <"$raw" | tr -d ' ')
+	# shellcheck disable=SC2018,SC2019
+	tr 'A-Z' 'a-z' <"$raw" | grep -E "$DOMAIN_RE" >"${raw}.ok"
+	kept=$(wc -l <"${raw}.ok" | tr -d ' ')
+
+	[ "$total" -eq "$kept" ] ||
+		log_warn "rule '$section': ignored $((total - kept)) of $total entries that are not domain names"
+
+	cat "${raw}.ok"
+	rm -f "$raw" "${raw}.ok"
+}
+
+publish_domains() {
+	local rule_type dest
+	mkdir -p "$SEEDEX_ROUTER_DOMAINS_DIR"
+	for rule_type in overlay direct block; do
+		dest="$SEEDEX_ROUTER_DOMAINS_DIR/$rule_type"
+		if _type_active "$rule_type"; then
+			RULE_TYPE_FILTER="$rule_type"
+			config_foreach _rule_domains rule | sort -u >"$dest.new"
+		else
+			: >"$dest.new"
+		fi
+		mv "$dest.new" "$dest"
+	done
+	/etc/init.d/seedex-dns reload 2>/dev/null
+	log_debug "domains published: $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/overlay") overlay, $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/direct") direct, $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/block") blocked"
+}
+
+setup_policy_routing() {
+	ip rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
+	ip rule add fwmark "$FWMARK" table "$ROUTE_TABLE" priority "$RULE_PRIO"
+	ip -6 rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
+	ip -6 rule add fwmark "$FWMARK" table "$ROUTE_TABLE" priority "$RULE_PRIO"
+	ip -6 route replace unreachable default table "$ROUTE_TABLE"
+	log_debug "fwmark=$FWMARK table=$ROUTE_TABLE priority=$RULE_PRIO"
+
+	local active
+	seedex_dns_bootstrap 1
+	active=$(seedex_fastest_iface "$PROBE_URL" "$PROBE_TIMEOUT")
+
+	if [ -z "$active" ]; then
+		log_warn "no reachable interfaces, routing deferred to watchdog"
+		return 0
+	fi
+
+	ip route replace default dev "$active" table "$ROUTE_TABLE"
+	seedex_overlay_route6 "$active"
+	seedex_dns_bootstrap 0
+
+	mkdir -p "$(dirname "$STATE_FILE")"
+	echo "$active" >"$STATE_FILE"
+
+	log_debug "policy routing via $active"
+}
+
+teardown_policy_routing() {
+	ip rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
+	ip route flush table "$ROUTE_TABLE" 2>/dev/null
+	ip -6 rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
+	ip -6 route flush table "$ROUTE_TABLE" 2>/dev/null
+	rm -f "$STATE_FILE"
+	log_debug "policy routing removed"
+}
+
+service_triggers() {
+	procd_add_reload_trigger seedex-router
+}
+
+start_service() {
+	_load_config
+	_load_interfaces
+
+	log_debug "starting (default_route=$DEFAULT_ROUTE, interfaces: $INTERFACES)"
+	mkdir -p "$ROUTER_RUNDIR" "$IPS_DIR"
+
+	seedex_dns_wait
+
+	download_lists
+	collect_rule_ips "overlay"
+	collect_rule_ips "direct"
+	collect_rule_ips "block"
+	collect_rule_clients "overlay"
+	collect_rule_clients "direct"
+	setup_nftables || return 1
+	publish_domains
+	setup_policy_routing
+
+	procd_open_instance 'watchdog'
+	procd_set_param command $WATCHDOG
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+
+	local overlay_count=0 direct_count=0 block_count=0 ep_count=0 active=""
+	[ -f "${IPS_DIR}/overlay.ips" ] && overlay_count=$(wc -l <"${IPS_DIR}/overlay.ips" | tr -d ' ')
+	[ -f "${IPS_DIR}/direct.ips" ] && direct_count=$(wc -l <"${IPS_DIR}/direct.ips" | tr -d ' ')
+	[ -f "${IPS_DIR}/block.ips" ] && block_count=$(wc -l <"${IPS_DIR}/block.ips" | tr -d ' ')
+	[ -f "${IPS_DIR}/endpoints.ips" ] && ep_count=$(wc -l <"${IPS_DIR}/endpoints.ips" | tr -d ' ')
+	[ -f "$STATE_FILE" ] && active=$(cat "$STATE_FILE")
+	log_info "started (mode=$DEFAULT_ROUTE, kill_switch=$KILL_SWITCH, overlay_ips=$overlay_count, direct_ips=$direct_count, block_ips=$block_count, endpoints=$ep_count, active=${active:-pending})"
+}
+
+stop_service() {
+	_load_config
+	teardown_policy_routing
+	teardown_nftables
+	rm -rf "$ROUTER_RUNDIR"
+	/etc/init.d/seedex-dns reload 2>/dev/null
+	log_info "stopped"
+}
+
+EXTRA_COMMANDS="reapply"
+EXTRA_HELP="	reapply	Rebuild the IP sets from lists already on disk"
+
+reapply() {
+	_load_config
+
+	if ! nft list table inet "$NFT_TABLE" >/dev/null 2>&1; then
+		log_warn "reapply: no nftables table, nothing to update"
+		return 1
+	fi
+
+	log_info "reapplying rules"
+	collect_rule_ips "overlay"
+	collect_rule_ips "direct"
+	collect_rule_ips "block"
+	collect_rule_clients "overlay"
+	collect_rule_clients "direct"
+	_refresh_nft_sets
+	publish_domains
+	log_info "reapplied"
+}

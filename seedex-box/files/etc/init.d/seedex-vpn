@@ -1,0 +1,194 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+
+TAG="seedex-vpn"
+. /usr/lib/seedex/common.sh
+. /lib/functions.sh
+
+RUNDIR="$SEEDEX_RUNDIR/vpn"
+
+NFT_TABLE="seedex_vpn"
+
+IFACE_N=0
+
+setup_interface() {
+	local section="$1"
+	local enabled config name interface address mtu
+
+	config_get_bool enabled "$section" enabled 0
+	[ "$enabled" -eq 1 ] || return 0
+
+	config_get config "$section" config ''
+	config_get name "$section" name "$section"
+	interface="awg$IFACE_N"
+	IFACE_N=$((IFACE_N + 1))
+
+	[ -n "$config" ] || {
+		log_err "config '$name': missing config path"
+		return 1
+	}
+	[ -f "$config" ] || {
+		log_err "config '$name': '$config' not found"
+		return 1
+	}
+
+	command -v awg >/dev/null 2>&1 || {
+		log_err "config '$name': awg not installed"
+		return 1
+	}
+
+	address=$(seedex_awg_field "$config" Address)
+	[ -n "$address" ] || config_get address "$section" address ''
+	mtu=$(seedex_awg_field "$config" MTU)
+	[ -n "$mtu" ] || mtu=1420
+
+	[ -n "$address" ] || {
+		log_err "config '$name': no Address in '$config' and none in UCI"
+		return 1
+	}
+
+	if ip link show "$interface" >/dev/null 2>&1; then
+		ip link delete "$interface" 2>/dev/null
+	fi
+	if ! ip link add dev "$interface" type amneziawg 2>/dev/null; then
+		log_err "config '$name': failed to create iface '$interface'"
+		return 1
+	fi
+
+	local staged="$RUNDIR/${section}.conf"
+	sed -E '/^[[:space:]]*[AaMmDdTtPpSs][A-Za-z]*[[:space:]]*=/{
+		/^[[:space:]]*([Aa]ddress|[Mm][Tt][Uu]|[Dd][Nn][Ss]|[Tt]able|[Pp]re[UuDd]|[Pp]ost[UuDd]|[Ss]ave[Cc]onfig)/d
+	}' "$config" >"$staged"
+	chmod 600 "$staged"
+
+	local setconf_err
+	if ! setconf_err=$(awg setconf "$interface" "$staged" 2>&1); then
+		setconf_err=$(printf '%s' "$setconf_err" | tr '\n' ' ')
+		log_err "config '$name': awg setconf failed for '$config'${setconf_err:+: $setconf_err}"
+		rm -f "$staged"
+		ip link delete "$interface" 2>/dev/null
+		return 1
+	fi
+	rm -f "$staged"
+
+	local one addrs_added=0
+	for one in $(echo "$address" | tr ',' ' '); do
+		if ip addr add "$one" dev "$interface" 2>/dev/null; then
+			addrs_added=$((addrs_added + 1))
+		else
+			log_warn "config '$name': failed to add address '$one'"
+		fi
+	done
+
+	if [ "$addrs_added" -eq 0 ]; then
+		log_err "config '$name': no usable address in '$address'"
+		ip link delete "$interface" 2>/dev/null
+		return 1
+	fi
+	ip link set "$interface" mtu "$mtu"
+	ip link set "$interface" up
+
+	echo "$interface" >>"$RUNDIR/active_ifaces"
+
+	seedex_register_iface "$interface" "vpn" "$name"
+	log_debug "config '$name' up on $interface (config=$config address=$address mtu=$mtu)"
+}
+
+teardown_interfaces() {
+	local interface
+	[ -f "$RUNDIR/active_ifaces" ] || return 0
+	while read -r interface; do
+		[ -n "$interface" ] || continue
+		seedex_unregister_iface "$interface"
+		ip link set "$interface" down 2>/dev/null
+		ip link delete "$interface" 2>/dev/null
+		log_debug "$interface down"
+	done <"$RUNDIR/active_ifaces"
+}
+
+_setup_routing() {
+	local all_ifaces="$1"
+
+	_cleanup_routing 2>/dev/null
+
+	if ! nft add table inet "$NFT_TABLE" ||
+		! nft flush table inet "$NFT_TABLE" ||
+		! nft add chain inet "$NFT_TABLE" postrouting \
+			'{ type nat hook postrouting priority srcnat; policy accept; }'; then
+		log_err "nftables setup failed"
+		nft delete table inet "$NFT_TABLE" 2>/dev/null
+		return 1
+	fi
+
+	local iface
+	for iface in $all_ifaces; do
+		if nft add rule inet "$NFT_TABLE" postrouting \
+			oifname "\"$iface\"" masquerade; then
+			seedex_fw_add_device "$iface"
+		else
+			log_err "nft rule failed for $iface"
+		fi
+	done
+	seedex_fw_apply
+
+	log_debug "routing enabled for:$all_ifaces"
+}
+
+_cleanup_routing() {
+	nft delete table inet "$NFT_TABLE" 2>/dev/null
+
+	if [ -f "$RUNDIR/active_ifaces" ]; then
+		local iface
+		for iface in $(_print_active_interfaces); do
+			seedex_fw_del_device "$iface"
+		done
+		seedex_fw_apply
+	fi
+
+	log_debug "routing cleaned up"
+}
+
+_print_active_interfaces() {
+	[ -f "$RUNDIR/active_ifaces" ] || return 0
+	cat "$RUNDIR/active_ifaces"
+}
+
+service_triggers() {
+	procd_add_reload_trigger seedex-vpn
+}
+
+start_service() {
+	config_load seedex-vpn
+	seedex_prune_configs seedex-vpn config "$SEEDEX_VPN_DIR"
+
+	if [ -s "$RUNDIR/active_ifaces" ]; then
+		_cleanup_routing
+		teardown_interfaces
+	fi
+
+	mkdir -p "$RUNDIR"
+	rm -f "$RUNDIR/active_ifaces"
+	config_foreach setup_interface config
+
+	if [ ! -s "$RUNDIR/active_ifaces" ]; then
+		log_err "no interfaces started"
+		return 1
+	fi
+
+	local ifaces count
+	ifaces=$(_print_active_interfaces | tr '\n' ' ')
+	ifaces="${ifaces% }"
+	count=$(echo "$ifaces" | wc -w | tr -d ' ')
+
+	_setup_routing "$ifaces"
+
+	log_info "started ($count interface(s): $ifaces)"
+}
+
+stop_service() {
+	_cleanup_routing
+	teardown_interfaces
+	rm -rf "$RUNDIR"
+	log_info "stopped"
+}

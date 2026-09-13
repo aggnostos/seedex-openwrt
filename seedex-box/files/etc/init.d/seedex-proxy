@@ -1,0 +1,241 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+
+TAG="seedex-proxy"
+. /usr/lib/seedex/common.sh
+. /lib/functions.sh
+
+PROXY_RUNDIR="$SEEDEX_RUNDIR/proxy"
+CONFIG_FILE="$PROXY_RUNDIR/config.json"
+
+NFT_TABLE="seedex_proxy"
+
+SING_BOX_EXEC=/usr/bin/sing-box
+
+PID_FILE="$PROXY_RUNDIR/sing-box.pid"
+
+EXTRA_COMMANDS="attach detach"
+
+_load_config() {
+	config_load seedex-proxy
+	INTERFACE="$SEEDEX_PROXY_IFACE"
+	ADDRESS='172.19.0.1/30'
+	ADDRESS6='fdfe:dcba:9876::1/126'
+	config_get LOG_LEVEL main log_level 'warn'
+	config_get URLTEST_INTERVAL main urltest_interval '1m'
+}
+
+_collect_enabled() {
+	ENABLED_CONFIGS=""
+	ENABLED_NAMES=""
+
+	_collect_one() {
+		local section="$1" enabled config name
+		config_get_bool enabled "$section" enabled 0
+		[ "$enabled" -eq 1 ] || return 0
+
+		config_get config "$section" config ''
+		config_get name "$section" name "$section"
+		[ -n "$config" ] || return 0
+		[ -f "$config" ] || {
+			log_warn "config '$name': '$config' not found, skipping"
+			return 0
+		}
+		ENABLED_CONFIGS="$ENABLED_CONFIGS $config"
+		ENABLED_NAMES="$ENABLED_NAMES $name"
+	}
+
+	config_foreach _collect_one config
+	ENABLED_CONFIGS="${ENABLED_CONFIGS# }"
+	ENABLED_NAMES="${ENABLED_NAMES# }"
+}
+
+_assemble_config() {
+	mkdir -p "$(dirname "$CONFIG_FILE")"
+
+	[ -n "$ENABLED_CONFIGS" ] || {
+		log_err "no enabled proxy configs"
+		return 1
+	}
+
+	local outbounds
+	# shellcheck disable=SC2086
+	outbounds=$(jq -s '
+		[ .[] | [ .outbounds[]? | select(.tag != "direct") ] ]
+		| to_entries
+		| reduce .[] as $e ({ seen: [], out: [] };
+		    . as $acc
+		    | ( reduce ($e.value[] | .tag) as $t ({};
+		          if ($acc.seen | index($t))
+		          then . + { ($t): ($t + "-" + ($e.key | tostring)) }
+		          else . end)
+		      ) as $ren
+		    | { seen: ($acc.seen + [ $e.value[] | .tag as $t | $ren[$t] // $t ]),
+		        out:  ($acc.out  + [ $e.value[]
+		                             | (.tag |= ($ren[.] // .))
+		                             | (if has("detour")
+		                                then (.detour |= ($ren[.] // .))
+		                                else . end)
+		                             | . + { _src: $e.key } ]) })
+		| .out
+	' $ENABLED_CONFIGS 2>/dev/null) || {
+		log_err "could not read outbounds from: $ENABLED_CONFIGS"
+		return 1
+	}
+
+	printf '%s' "$outbounds" | jq -r '.[] | "\(._src) \(.tag)"' |
+		awk -v names="$ENABLED_NAMES" 'BEGIN { split(names, n, " ") } { print $2, n[$1 + 1] }' \
+			>"$PROXY_RUNDIR/tags"
+	outbounds=$(printf '%s' "$outbounds" | jq 'map(del(._src))')
+
+	local server_cidrs
+	server_cidrs=$(printf '%s' "$outbounds" |
+		jq -r '.[] | .server? // empty' |
+		grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' |
+		sort -u |
+		awk 'BEGIN { printf "[" } { printf "%s\"%s/32\"", sep, $0; sep = "," } END { printf "]" }')
+
+	local tags
+	tags=$(printf '%s' "$outbounds" | jq -c '
+		[ .[] | .detour // empty ] as $legs
+		| [ .[] | select(.tag as $t | ($legs | index($t)) == null) | .tag ]
+	')
+
+	jq -n \
+		--argjson outbounds "$outbounds" \
+		--argjson tags "$tags" \
+		--argjson cidrs "$server_cidrs" \
+		--arg iface "$INTERFACE" \
+		--arg address "$ADDRESS" \
+		--arg address6 "$ADDRESS6" \
+		--arg level "$LOG_LEVEL" \
+		--arg interval "$URLTEST_INTERVAL" \
+		--arg clash "$SEEDEX_CLASH_API" '
+		"auto" as $final
+		| {
+		    log: { level: $level, timestamp: true },
+		    experimental: { clash_api: { external_controller: $clash } },
+		    dns: {
+		      servers: [
+		        { type: "https", tag: "remote-dns", server: "1.1.1.1",
+		          path: "/dns-query", domain_resolver: "local-dns", detour: $final },
+		        { type: "udp", tag: "local-dns", server: "1.0.0.1" }
+		      ],
+		      final: "remote-dns",
+		      strategy: "prefer_ipv4"
+		    },
+		    inbounds: [
+		      { type: "tun", tag: "tun-in", interface_name: $iface,
+		        address: [$address, $address6], auto_route: false, stack: "gvisor" }
+		    ],
+		    outbounds: (
+		      $outbounds
+		      + [{ type: "urltest", tag: "auto", outbounds: $tags,
+		           url: "https://www.gstatic.com/generate_204", interval: $interval }]
+		      + [{ type: "direct", tag: "direct" }]
+		    ),
+		    route: {
+		      rules: [
+		        { inbound: "tun-in", action: "sniff" },
+		        { protocol: "dns", action: "hijack-dns" },
+		        { ip_is_private: true, outbound: "direct" },
+		        { ip_cidr: ($cidrs + ["1.0.0.1/32"]), outbound: "direct" }
+		      ],
+		      final: $final,
+		      auto_detect_interface: true,
+		      default_domain_resolver: "local-dns"
+		    }
+		  }' >"$CONFIG_FILE" || {
+		log_err "config assembly failed"
+		rm -f "$CONFIG_FILE"
+		return 1
+	}
+	chmod 600 "$CONFIG_FILE"
+
+	local check_err
+	if ! check_err="$($SING_BOX_EXEC check -c "$CONFIG_FILE" 2>&1)"; then
+		log_err "config validation failed: $check_err"
+		rm -f "$CONFIG_FILE"
+		return 1
+	fi
+	[ -n "$check_err" ] && log_warn "sing-box warnings: $check_err"
+
+	log_debug "config assembled from: $ENABLED_CONFIGS"
+}
+
+_setup_routing() {
+	_cleanup_routing 2>/dev/null
+
+	if ! nft add table inet "$NFT_TABLE" ||
+		! nft flush table inet "$NFT_TABLE" ||
+		! nft add chain inet "$NFT_TABLE" postrouting \
+			'{ type nat hook postrouting priority srcnat; policy accept; }' ||
+		! nft add rule inet "$NFT_TABLE" postrouting \
+			oifname "\"$INTERFACE\"" masquerade; then
+		log_err "nftables setup failed"
+		nft delete table inet "$NFT_TABLE" 2>/dev/null
+		return 1
+	fi
+
+	seedex_fw_add_device "$INTERFACE"
+	seedex_fw_apply
+
+	seedex_register_iface "$INTERFACE" "proxy" "proxy"
+	log_info "started (tun=$INTERFACE)"
+}
+
+_cleanup_routing() {
+	seedex_unregister_iface "$INTERFACE"
+	nft delete table inet "$NFT_TABLE" 2>/dev/null
+	seedex_fw_del_device "$INTERFACE"
+	seedex_fw_apply
+	log_debug "routing cleaned up"
+}
+
+service_triggers() {
+	procd_add_reload_trigger seedex-proxy
+}
+
+start_service() {
+	_load_config
+	seedex_prune_configs seedex-proxy config "$SEEDEX_PROXY_DIR"
+	_collect_enabled
+
+	if ! _assemble_config; then
+		log_err "setup failed, not starting"
+		return 1
+	fi
+
+	procd_open_instance 'sing-box'
+	procd_set_param command $SING_BOX_EXEC run -c "$CONFIG_FILE"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param pidfile "$PID_FILE"
+	procd_set_param term_timeout 5
+	procd_set_param file /etc/config/seedex-proxy
+	local cfg
+	for cfg in $ENABLED_CONFIGS; do
+		procd_set_param file "$cfg"
+	done
+	procd_close_instance
+}
+
+attach() {
+	_load_config
+	[ -f "$CONFIG_FILE" ] || return 0
+	_setup_routing
+}
+
+detach() {
+	_load_config
+	_cleanup_routing
+}
+
+stop_service() {
+	_load_config
+	_cleanup_routing
+	rm -rf "$PROXY_RUNDIR"
+	log_info "stopped"
+}

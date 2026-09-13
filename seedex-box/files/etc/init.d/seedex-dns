@@ -1,0 +1,245 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+
+TAG="seedex-dns"
+. /usr/lib/seedex/common.sh
+. /lib/functions.sh
+
+DNS_RUNDIR="$SEEDEX_DNS_RUNDIR"
+NFT_TABLE="seedex_dns"
+DOH_PROXY=/usr/sbin/https-dns-proxy
+DOH_PORT=5053
+
+_load_config() {
+	config_load seedex-dns
+	config_get UPSTREAM main upstream 'encrypted'
+	config_get RESOLVER main resolver 'cloudflare'
+	config_get_bool INTERCEPT main intercept 1
+	DNSMASQ_CONF="$(seedex_dnsmasq_confdir)/seedex-dns.conf"
+}
+
+_resolver() {
+	case "$RESOLVER" in
+	cloudflare)
+		DOH_URL="https://cloudflare-dns.com/dns-query"
+		RESOLVER_IPS="1.1.1.1 1.0.0.1 2606:4700:4700::1111 2606:4700:4700::1001"
+		;;
+	quad9)
+		DOH_URL="https://dns.quad9.net/dns-query"
+		RESOLVER_IPS="9.9.9.9 149.112.112.112 2620:fe::fe 2620:fe::9"
+		;;
+	google)
+		DOH_URL="https://dns.google/dns-query"
+		RESOLVER_IPS="8.8.8.8 8.8.4.4 2001:4860:4860::8888 2001:4860:4860::8844"
+		;;
+	*)
+		log_err "unknown resolver '$RESOLVER' (cloudflare, quad9, google)"
+		return 1
+		;;
+	esac
+}
+
+_lan_device() {
+	local dev
+	dev=$(ubus call network.interface.lan status 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null)
+	printf '%s\n' "${dev:-br-lan}"
+}
+
+DNSMASQ_LINE_MAX=900
+
+_pack_nftset() {
+	awk -v tbl="$SEEDEX_ROUTER_NFT_TABLE" -v set="$1" -v max="$2" '
+		BEGIN { tail = "/4#inet#" tbl "#" set ",6#inet#" tbl "#" set "6" }
+		function flush_line() {
+			if (n > 0) { print "nftset=" buf tail; buf = ""; n = 0 }
+		}
+		NF {
+			if (n > 0 && length("nftset=") + length(buf) + length($0) + length(tail) + 1 > max) flush_line()
+			buf = buf "/" $0
+			n++
+		}
+		END { flush_line() }
+	'
+}
+
+_pack_local() {
+	awk -v max="$1" '
+		function flush_line() {
+			if (n > 0) { print "local=" buf "/"; buf = ""; n = 0 }
+		}
+		NF {
+			if (n > 0 && length("local=") + length(buf) + length($0) + 2 > max) flush_line()
+			buf = buf "/" $0
+			n++
+		}
+		END { flush_line() }
+	'
+}
+
+_domains() {
+	local f="$SEEDEX_ROUTER_DOMAINS_DIR/$1"
+	[ -f "$f" ] && cat "$f"
+	return 0
+}
+
+_render_dnsmasq_conf() {
+	local ip max="$1"
+	case "$UPSTREAM" in
+	encrypted)
+		echo "no-resolv"
+		echo "server=127.0.0.1#${DOH_PORT}"
+		;;
+	plain)
+		echo "no-resolv"
+		for ip in $RESOLVER_IPS; do echo "server=$ip"; done
+		;;
+	esac
+	[ "$INTERCEPT" -eq 0 ] || echo "server=/use-application-dns.net/"
+	_domains overlay | _pack_nftset "$SEEDEX_ROUTER_OVERLAY_DYN" "$max"
+	_domains direct | _pack_nftset "$SEEDEX_ROUTER_DIRECT_DYN" "$max"
+	_domains block | _pack_local "$max"
+}
+
+_dnsmasq_conf_ok() {
+	command -v dnsmasq >/dev/null 2>&1 || return 0
+	dnsmasq --test -C "$1" >/dev/null 2>&1
+}
+
+_write_dnsmasq_conf() {
+	local tmp="${DNSMASQ_CONF}.new" max="$DNSMASQ_LINE_MAX"
+	mkdir -p "${DNSMASQ_CONF%/*}"
+	while :; do
+		_render_dnsmasq_conf "$max" >"$tmp"
+		_dnsmasq_conf_ok "$tmp" && break
+		if [ "$max" -eq 0 ]; then
+			log_err "dnsmasq rejected the generated config, keeping the previous one"
+			rm -f "$tmp"
+			return 1
+		fi
+		log_warn "dnsmasq rejected grouped domain lines, falling back to one domain per line"
+		max=0
+	done
+	if [ -f "$DNSMASQ_CONF" ] && cmp -s "$tmp" "$DNSMASQ_CONF"; then
+		rm -f "$tmp"
+		return 1
+	fi
+	mv "$tmp" "$DNSMASQ_CONF"
+}
+
+_write_upstream_ips() {
+	mkdir -p "$DNS_RUNDIR"
+	case "$UPSTREAM" in
+	provider) awk '$1 == "nameserver" { print $2 }' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null ;;
+	*) printf '%s' "$RESOLVER_IPS" | tr ' ' '\n' ;;
+	esac >"$DNS_RUNDIR/upstream.ips"
+}
+
+_setup_intercept() {
+	local lan
+	lan=$(_lan_device)
+	nft -f - <<EOT || return 1
+table inet ${NFT_TABLE} {
+  chain dns_redirect {
+    type nat hook prerouting priority dstnat - 5; policy accept;
+    iifname "${lan}" meta l4proto { tcp, udp } th dport 53 redirect
+  }
+  chain dns_block {
+    type filter hook forward priority filter; policy accept;
+    iifname "${lan}" tcp dport 853 reject with tcp reset
+    iifname "${lan}" udp dport 853 reject
+  }
+}
+EOT
+	log_debug "intercepting DNS from ${lan}"
+}
+
+_disable_stock_proxy() {
+	[ -x /etc/init.d/https-dns-proxy ] || return 0
+	/etc/init.d/https-dns-proxy stop 2>/dev/null
+	/etc/init.d/https-dns-proxy disable 2>/dev/null
+	nft delete table inet https_dns_proxy_notrack 2>/dev/null
+
+	local sec backup_noresolv backup_servers s
+	sec=$(uci -q show dhcp | sed -n 's/^dhcp\.\([^.]*\)=dnsmasq$/\1/p' | head -1)
+	[ -n "$sec" ] || return 0
+	backup_noresolv=$(uci -q get "dhcp.${sec}.doh_backup_noresolv")
+	[ -n "$backup_noresolv" ] || return 0
+
+	log_warn "the stock https-dns-proxy had rewritten the dnsmasq upstream, restoring it"
+	backup_servers=$(uci -q get "dhcp.${sec}.doh_backup_server")
+	uci -q delete "dhcp.${sec}.server"
+	for s in $backup_servers; do
+		uci add_list "dhcp.${sec}.server=$s"
+	done
+	if [ "$backup_noresolv" = "-1" ]; then
+		uci -q delete "dhcp.${sec}.noresolv"
+	else
+		uci set "dhcp.${sec}.noresolv=$backup_noresolv"
+	fi
+	uci -q delete "dhcp.${sec}.doh_backup_noresolv"
+	uci -q delete "dhcp.${sec}.doh_backup_server"
+	uci -q delete "dhcp.${sec}.doh_server"
+	uci commit dhcp
+}
+
+service_triggers() {
+	procd_add_reload_trigger seedex-dns
+}
+
+start_service() {
+	_load_config
+	_resolver || return 1
+	_disable_stock_proxy
+
+	nft delete table inet "$NFT_TABLE" 2>/dev/null
+	if [ "$INTERCEPT" -eq 1 ]; then
+		_setup_intercept || {
+			log_err "could not set up DNS interception"
+			return 1
+		}
+	fi
+
+	if [ "$UPSTREAM" = encrypted ]; then
+		[ -x "$DOH_PROXY" ] || {
+			log_err "$DOH_PROXY not found — install https-dns-proxy"
+			return 1
+		}
+		procd_open_instance 'doh'
+		procd_set_param command "$DOH_PROXY" -a 127.0.0.1 -p "$DOH_PORT" \
+			-r "$DOH_URL" -b "$(printf '%s' "$RESOLVER_IPS" | tr ' ' ',')"
+		procd_set_param respawn 3600 5 5
+		procd_set_param stdout 1
+		procd_set_param stderr 1
+		procd_set_param file /etc/config/seedex-dns
+		procd_close_instance
+	fi
+
+	_write_upstream_ips
+	rm -f "${DNSMASQ_CONF%/*}/seedex-router.conf"
+	if _write_dnsmasq_conf; then
+		/etc/init.d/dnsmasq restart 2>/dev/null
+	fi
+	log_info "started (upstream=$UPSTREAM resolver=$RESOLVER intercept=$INTERCEPT)"
+}
+
+reload_service() {
+	_load_config
+	_resolver || return 1
+	[ -f "$DNS_RUNDIR/upstream.ips" ] || return 0
+	if _write_dnsmasq_conf; then
+		/etc/init.d/dnsmasq restart 2>/dev/null
+		log_debug "dnsmasq config reloaded"
+	fi
+}
+
+stop_service() {
+	_load_config
+	nft delete table inet "$NFT_TABLE" 2>/dev/null
+	if [ -f "$DNSMASQ_CONF" ]; then
+		rm -f "$DNSMASQ_CONF"
+		/etc/init.d/dnsmasq restart 2>/dev/null
+	fi
+	rm -rf "$DNS_RUNDIR"
+	log_info "stopped"
+}

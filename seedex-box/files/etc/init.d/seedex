@@ -1,0 +1,60 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=1
+
+TAG="seedex"
+. /usr/lib/seedex/common.sh
+
+IFACE_TIMEOUT=30
+
+_wait_for_ifaces() {
+	local i=0
+	while [ "$i" -lt "$IFACE_TIMEOUT" ]; do
+		local count
+		count=$(seedex_all_ifaces | wc -l | tr -d ' ')
+		if [ "$count" -gt 0 ]; then
+			log_info "interfaces ready ($count registered)"
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+	log_warn "no interfaces registered after ${IFACE_TIMEOUT}s, starting router anyway"
+}
+
+start() {
+	log_info "starting"
+	mkdir -p "$SEEDEX_RUNDIR"
+
+	local svc
+	for svc in seedex-dns seedex-vpn seedex-proxy; do
+		seedex_service_enabled "${svc#seedex-}" || continue
+		[ -x "/etc/init.d/$svc" ] && /etc/init.d/$svc start
+	done
+
+	_wait_for_ifaces
+
+	if seedex_service_enabled router && [ -x /etc/init.d/seedex-router ]; then
+		/etc/init.d/seedex-router start
+	fi
+
+	log_info "started"
+}
+
+stop() {
+	log_info "stopping"
+
+	local svc
+	for svc in seedex-router seedex-proxy seedex-vpn seedex-dns; do
+		/etc/init.d/$svc stop 2>/dev/null
+	done
+
+	rm -rf "$SEEDEX_IFACE_DIR"
+	log_info "stopped"
+}
+
+restart() {
+	stop
+	start
+}
