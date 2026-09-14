@@ -85,4 +85,4 @@ router takes their native configs as they are.
 
 ## License
 
-GPL-2.0-o.
+GPL-2.0.
