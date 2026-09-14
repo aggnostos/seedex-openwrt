@@ -10,10 +10,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install shfmt
+      - name: Install shfmt and shellcheck
         run: |
           curl -fsSL -o /usr/local/bin/shfmt \
             https://github.com/mvdan/sh/releases/download/v3.13.1/shfmt_v3.13.1_linux_amd64
           chmod +x /usr/local/bin/shfmt
+          curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz |
+            tar -xJ --strip-components=1 -C /usr/local/bin shellcheck-v0.11.0/shellcheck
 
       - run: make lint

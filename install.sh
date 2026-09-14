@@ -34,8 +34,9 @@ command -v apk >/dev/null 2>&1 || die "apk not found — seedex needs OpenWrt 25
 
 release=$(. /etc/openwrt_release 2>/dev/null && echo "${DISTRIB_RELEASE:-}")
 target=$(. /etc/openwrt_release 2>/dev/null && echo "${DISTRIB_TARGET:-}")
-[ -n "$release" ] && [ -n "$target" ] ||
+if [ -z "$release" ] || [ -z "$target" ]; then
 	die "cannot read /etc/openwrt_release"
+fi
 
 if [ $# -gt 0 ]; then
 	for f in "$@"; do
