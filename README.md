@@ -25,9 +25,10 @@ goes nowhere rather than out in the open.
 through the tunnel when one is up, devices that try to resolve on their own
 are answered by the router anyway, and ad and tracker domains never resolve.
 
-**Link.** Pair the router with your server once, and it keeps its tunnel
-configs in sync from there on — pick the ones you want, and forget about
-copying files.
+**Link.** Pair the router once with a server running
+[seedex-agent](https://github.com/aggnostos/seedex-agent), and it keeps its
+tunnel configs in sync from there on — pick the ones you want, and forget
+about copying files.
 
 ## What it looks like
 
