@@ -1,7 +1,8 @@
 # sdx
 
 `sdx` is the command line of Seedex. It is built around four services —
-`router`, `vpn`, `proxy`, `dns` — and reads the same way everywhere:
+`router`, `vpn`, `proxy`, `dns` — plus `link`, the connection to your
+servers, and reads the same way everywhere:
 
 ```
 sdx                         status of the box
@@ -47,14 +48,15 @@ about an entry of it.
 ### `sdx`
 
 Status of everything: the uplink, which tunnel carries the traffic and its
-RTT, then each service in turn.
+RTT, each service in turn, and the links to your servers.
 
 ### `sdx import <path>`
 
 Import a config file — an AmneziaWG `.conf` for `vpn`, a sing-box `.json` for
 `proxy`, a rules `.json` for `router` — or every config in a directory. The
 file decides which service it goes to; the file name becomes the entry name,
-and a name already in use is refused.
+and a name already in use is refused. With a server running seedex-agent
+there is no file to carry: see [Link](#link).
 
 ### `sdx logs`
 
@@ -240,3 +242,48 @@ Service settings: `show`, `get <key>`, `set key=value ...`.
 - `intercept` — `1` redirects every DNS query from the network into the
   router and refuses DNS-over-TLS, so a device with its own resolver still
   follows the rules; `0` leaves devices alone.
+
+## Link
+
+The connection to a server running [seedex-agent](https://github.com/aggnostos/seedex-agent).
+Pair once, and from then on the router pulls its VPN and proxy configs from
+the server by itself — every 30 minutes and on demand — so a new client, a
+rotated credential or a new protocol on the server reaches the router without
+copying anything. Configs a link delivers are ordinary entries of `vpn` and
+`proxy`, marked as managed by that link: the link updates them, removes them
+when the server drops them, and leaves configs imported by hand alone.
+
+### `sdx link`
+
+Every link: whether the last sync succeeded, its URL, how many configs it
+manages, and when it last synced.
+
+### `sdx link add <name> <url> <token> <fingerprint>`
+
+Pair with a server. `sdx link add <router>` on the server prints the URL,
+the token and the certificate fingerprint, and the exact command to paste
+here. The fingerprint pins the server's certificate, so nothing in between can
+impersonate it; the token identifies this router. Pairing imports every
+config the server offers straight away.
+
+### `sdx link show <name>`
+
+What the server offers right now, by service, with `[*]` on the configs the
+router has imported.
+
+### `sdx link select <name> <config> ... | --all`
+
+Choose which of the offered configs to import — a router does not have to
+carry every client the server knows. The choice is kept and applied at once:
+configs no longer selected are removed, newly selected ones are added.
+`--all` returns to importing everything, the default after `add`.
+
+### `sdx link sync [name]`
+
+Pull now, for one link or all. Changed configs are replaced, new ones added,
+dropped ones removed, and the services that changed are restarted. A cron job
+runs it every 30 minutes.
+
+### `sdx link remove <name>`
+
+Unpair and drop every config the link delivered.

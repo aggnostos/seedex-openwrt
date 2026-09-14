@@ -25,6 +25,10 @@ goes nowhere rather than out in the open.
 through the tunnel when one is up, devices that try to resolve on their own
 are answered by the router anyway, and ad and tracker domains never resolve.
 
+**Link.** Pair the router with your server once, and it keeps its tunnel
+configs in sync from there on — pick the ones you want, and forget about
+copying files.
+
 ## What it looks like
 
 ```
@@ -58,6 +62,9 @@ Uplink:
   Upstream:   encrypted
   Resolver:   cloudflare
   Intercept:  on
+
+Link:
+  [*] nl1        https://203.0.113.5:8447         2 vpn, 3 proxy, 4 min ago
 ```
 
 Everything above is also in LuCI under Services → Seedex.
@@ -73,15 +80,17 @@ sh install.sh
 
 This adds the Seedex package feed, installs `seedex-box` with the `sdx`
 command and `luci-app-seedex` for LuCI (`--no-luci` to skip it), and starts
-the DNS service. Tunnels and routing start once you import a config from your
-server — see [what to do next](docs/sdx.md).
+the DNS service. Tunnels and routing start once the router has a config from
+your server — pasted with `sdx import`, or pulled on its own after `sdx link
+add`. See [what to do next](docs/sdx.md).
 
 ## Server
 
 Seedex needs a server of your own to tunnel to. [seedex-agent](https://github.com/aggnostos/seedex-agent)
-sets one up with a single command and exports client configs ready for
-`sdx import`; any other AmneziaWG or sing-box server works just as well — the
-router takes their native configs as they are.
+sets one up with a single command; the router pairs with it by pasting one
+line and pulls its configs from there on. Any other AmneziaWG or sing-box
+server works just as well — the router takes their native configs as they
+are, via `sdx import`.
 
 ## License
 
