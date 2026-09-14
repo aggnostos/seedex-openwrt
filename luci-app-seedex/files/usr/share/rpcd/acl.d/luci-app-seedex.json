@@ -3,7 +3,7 @@
     "description": "Grant access to Seedex",
     "read": {
       "ubus": {
-        "luci.seedex": [ "status", "config", "file", "logs" ]
+        "luci.seedex": [ "status", "config", "file", "logs", "link", "link_configs" ]
       }
     },
     "write": {

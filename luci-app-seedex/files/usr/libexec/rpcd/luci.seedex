@@ -125,6 +125,70 @@ do_file() {
 		'{path: $path, missing: $missing, content: $content}'
 }
 
+_link_row() {
+	local n="$1" url ts state when="never synced" ok=false n_vpn n_proxy selected
+	url=$(uci -q get "seedex-link.$n.url")
+	selected=$(uci -q get "seedex-link.$n.config")
+	if [ -f "$LINK_RUNDIR/$n" ]; then
+		read -r ts state <"$LINK_RUNDIR/$n"
+		when="$((($(date +%s) - ts) / 60)) min ago"
+		case "$state" in
+		synced) ok=true ;;
+		"synced "*) when="$when, ${state#synced } selected missing" ;;
+		error:*) when="$when, ${state#error: }" ;;
+		esac
+	fi
+	n_vpn=$(uci -q show seedex-vpn | grep -c "\.link='$n'")
+	n_proxy=$(uci -q show seedex-proxy | grep -c "\.link='$n'")
+	jq -n --arg name "$n" --arg url "$url" --arg when "$when" --argjson ok "$ok" \
+		--argjson vpn "$n_vpn" --argjson proxy "$n_proxy" --arg selected "$selected" \
+		'{name: $name, url: $url, ok: $ok, when: $when, vpn: $vpn, proxy: $proxy,
+		  selected: ($selected | split(" ") | map(select(length > 0)))}'
+}
+
+do_link() {
+	local n
+	. /usr/lib/seedex/link.sh
+	for n in $(_link_names); do
+		_link_row "$n"
+	done | jq -s '{links: .}'
+}
+
+do_link_configs() {
+	local name tmp payload err svc ext f c imported
+	name=$(_field name)
+	. /usr/lib/seedex/link.sh
+	case "$name" in
+	"" | *[!A-Za-z0-9._-]* | -*) _error "invalid link name" ;;
+	esac
+	uci -q get "seedex-link.$name" >/dev/null 2>&1 || _error "link '$name' not found"
+	tmp=$(mktemp -d)
+	payload="$tmp/configs.json"
+	if ! err=$(_link_fetch "$name" "$payload"); then
+		rm -rf "$tmp"
+		_error "$err"
+	fi
+	_link_unpack "$payload" "$tmp"
+	for svc in vpn proxy; do
+		case "$svc" in
+		vpn) ext=conf ;;
+		*) ext=json ;;
+		esac
+		for f in "$tmp/$svc"/*."$ext"; do
+			[ -f "$f" ] || continue
+			c="${f##*/}"
+			c="${c%.*}"
+			imported=false
+			[ "$(_owner_of "$svc" "$c")" = "$name" ] && imported=true
+			printf '%s %s %s\n' "$svc" "$c" "$imported"
+		done
+	done | jq -R -s --arg selected "$(_link_selected "$name")" 'split("\n") | map(select(length > 0) | split(" "))
+		| { vpn: map(select(.[0] == "vpn") | {name: .[1], imported: (.[2] == "true")}),
+		    proxy: map(select(.[0] == "proxy") | {name: .[1], imported: (.[2] == "true")}),
+		    selected: ($selected | split(" ") | map(select(length > 0))) }'
+	rm -rf "$tmp"
+}
+
 do_logs() {
 	local svc
 	svc=$(_field svc)
@@ -145,7 +209,9 @@ list)
   "run": { "svc": "str", "action": "str", "args": [ "str" ], "stdin": "str" },
   "import": { "name": "str", "content": "str" },
   "file": { "svc": "str", "path": "str" },
-  "logs": { "svc": "str" }
+  "logs": { "svc": "str" },
+  "link": {},
+  "link_configs": { "name": "str" }
 }
 JSON
 	;;
@@ -160,6 +226,8 @@ call)
 	import) do_import ;;
 	file) do_file ;;
 	logs) do_logs ;;
+	link) do_link ;;
+	link_configs) do_link_configs ;;
 	*) exit 1 ;;
 	esac
 	;;

@@ -55,6 +55,15 @@
     }
   },
 
+  "admin/services/seedex/link": {
+    "title": "Link",
+    "order": 47,
+    "action": {
+      "type": "view",
+      "path": "seedex/link"
+    }
+  },
+
   "admin/services/seedex/system": {
     "title": "System",
     "order": 50,

@@ -44,6 +44,19 @@ var callLogs = rpc.declare({
 	reject: true
 });
 
+var callLink = rpc.declare({
+	object: 'luci.seedex',
+	method: 'link',
+	reject: true
+});
+
+var callLinkConfigs = rpc.declare({
+	object: 'luci.seedex',
+	method: 'link_configs',
+	params: [ 'name' ],
+	reject: true
+});
+
 function unwrap(res) {
 	if (!res || res.code !== 0)
 		throw new Error((res && (res.error || res.output)) || _('Command failed'));
@@ -51,11 +64,25 @@ function unwrap(res) {
 }
 
 return baseclass.extend({
-	labels: { vpn: 'VPN', proxy: 'Proxy', router: 'Router', dns: 'DNS' },
+	labels: { vpn: 'VPN', proxy: 'Proxy', router: 'Router', dns: 'DNS', link: 'Link' },
 
 	status: callStatus,
 
 	file: callFile,
+
+	links: function() {
+		return callLink().then(function(res) {
+			return (res && res.links) || [];
+		});
+	},
+
+	linkConfigs: function(name) {
+		return callLinkConfigs(name).then(function(res) {
+			if (res && res.error)
+				throw new Error(res.error);
+			return res;
+		});
+	},
 
 	logs: function(svc) {
 		return callLogs(svc || '').then(unwrap);
