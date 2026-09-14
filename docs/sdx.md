@@ -12,11 +12,11 @@ sdx <service> help          the actions of that service
 ```
 
 Changes made with `sdx` — adding, removing, enabling, updating, settings — are
-pending in UCI, like with any other OpenWrt package: the service picks them up
-at its next `restart`, `sdx commit` writes them to disk so they survive a
-reboot, `sdx revert` drops them. Review with `sdx changes`. Each works on one
-service (`sdx vpn commit`) or on all. In LuCI each page shows its unsaved
-changes with Apply (commit and restart) and Revert; OpenWrt's own Save & Apply
+pending until `sdx apply`, which saves them and restarts the service; `sdx
+revert` drops them, `sdx changes` shows them. Each works on one service
+(`sdx vpn apply`) or on all. Underneath this is plain UCI: `uci changes`,
+`uci commit`, and a `restart` picks pending changes up too. In LuCI each page
+shows its unsaved changes with Apply and Revert; OpenWrt's own Save & Apply
 does not see them.
 
 Entries — VPN and proxy configs, router rules — are addressed by name, or by
@@ -26,15 +26,14 @@ their number in the `show` list.
 
 ### `sdx <service> start` / `stop` / `restart`
 
-Control the service now. `restart` is what applies committed changes.
-Without a service — `sdx restart` — all four go down and up in the right
+Control the service now. Without a service — `sdx restart` — all four go down and up in the right
 order: DNS first, then the tunnels, then the router once a tunnel is up.
 
-### `sdx <service> changes` / `commit` / `revert`
+### `sdx <service> changes` / `apply` / `revert`
 
-Pending changes of the service: show them, write them to disk so they survive
-a reboot, or throw them away. `commit` is `uci commit seedex-<service>`; a
-`restart` applies pending changes whether committed or not.
+Pending changes of the service: show them, save them and restart the service
+so they take effect, or throw them away. `apply` also restarts a service that
+runs with older settings than the saved ones.
 
 ### `sdx <service> enable` / `disable`
 

@@ -272,6 +272,19 @@ cmd_import() {
 	[ "$failed" -eq 0 ] || exit 1
 }
 
+cmd_apply() {
+	local svc did=0
+	for svc in dns vpn proxy router; do
+		_svc "$svc" apply
+		case $? in
+		0) did=1 ;;
+		"$SVC_NOOP") ;;
+		*) exit 1 ;;
+		esac
+	done
+	[ "$did" = 1 ] || echo "nothing to apply"
+}
+
 cmd_help() {
 	echo "Usage: sdx [<service>]                      Status of the box, or of one service"
 	echo "       sdx <service> <action> [options]     service: router, vpn, proxy, dns"
@@ -281,7 +294,7 @@ cmd_help() {
 	echo "  start | stop | restart        Control the service now"
 	echo "  enable | disable              Keep the service on or off across reboots"
 	echo "  config                        Service settings: show, get <key>, set k=v ..."
-	echo "  changes | commit | revert     Pending UCI changes of the service"
+	echo "  changes | apply | revert      Pending changes: show, save and restart, drop"
 	echo
 	section "Entries (rules in router, configs in vpn and proxy):"
 	echo "  show [#|name]                 List entries, or show one"
@@ -299,7 +312,7 @@ cmd_help() {
 	echo "  help                          This text"
 	echo
 	echo "Changes made by add, update, enable, disable, remove, import and config"
-	echo "take effect at the next restart; 'sdx commit' keeps them across reboots,"
+	echo "are pending until 'sdx apply', which saves them and restarts the service;"
 	echo "'sdx revert' drops them."
 }
 
@@ -365,6 +378,9 @@ help | -h | --help)
 	;;
 start | stop | restart)
 	/etc/init.d/seedex "$1"
+	;;
+apply)
+	cmd_apply
 	;;
 *)
 	ACTION="$1"

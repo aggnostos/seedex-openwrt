@@ -200,21 +200,16 @@ return baseclass.extend({
 				return self.run(svc, action).catch(self.fail).then(refresh);
 			};
 		};
-		var apply = function() {
-			return self.run(svc, 'commit').then(function() {
-				return self.run(svc, 'restart');
-			}).catch(self.fail).then(refresh);
-		};
 		var parts = [];
 		if (lines.length)
 			parts.push(E('h4', {}, _('Unsaved changes')), E('pre', {}, lines.join('\n')),
 				E('p', {}, _('Apply saves them and restarts the service; revert drops them.')),
-				self.button(_('Apply'), 'cbi-button-positive', apply, ctx), ' ',
+				self.button(_('Apply'), 'cbi-button-positive', act('apply'), ctx), ' ',
 				self.button(_('Revert'), 'cbi-button-negative', act('revert'), ctx));
 		else
 			parts.push(E('h4', {}, _('Changes not applied yet')),
 				E('p', {}, _('The service runs with its previous settings; a restart applies the new ones.')),
-				self.button(_('Restart'), 'cbi-button-action', act('restart'), ctx));
+				self.button(_('Apply'), 'cbi-button-action', act('apply'), ctx));
 		return E('div', { 'class': 'alert-message warning', 'style': 'margin-top:1em' }, parts);
 	},
 

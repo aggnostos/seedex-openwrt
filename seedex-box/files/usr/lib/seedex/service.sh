@@ -279,10 +279,15 @@ svc_changes() {
 	printf '%s\n' "$diff"
 }
 
-svc_commit() {
-	[ -n "$(uci changes "$SVC_ID" 2>/dev/null)" ] || return "$SVC_NOOP"
-	uci commit "$SVC_ID"
-	echo "committed $SVC_ID"
+svc_apply() {
+	local pending
+	pending=$(uci changes "$SVC_ID" 2>/dev/null)
+	[ -n "$pending" ] || seedex_config_stale "$SVC_NAME" || return "$SVC_NOOP"
+	if [ -n "$pending" ]; then
+		uci commit "$SVC_ID"
+		echo "saved $SVC_ID"
+	fi
+	svc_restart
 }
 
 svc_revert() {
