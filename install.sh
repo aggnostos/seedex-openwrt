@@ -2,7 +2,7 @@
 
 set -eu
 
-SEEDEX_FEED="${SEEDEX_FEED:-}"
+SEEDEX_FEED="${SEEDEX_FEED:-https://aggnostos.github.io/seedex-openwrt}"
 AWG_FEED="${AWG_FEED:-https://slava-shchipunov.github.io/awg-openwrt}"
 
 KEYS_DIR=/etc/apk/keys
@@ -44,10 +44,6 @@ if [ $# -gt 0 ]; then
 		PKGS="$PKGS $f"
 		LOCAL_KEY="${f%/*}/../keys/$SEEDEX_KEY_NAME"
 	done
-elif [ -z "$SEEDEX_FEED" ]; then
-	die "no seedex feed configured.
-Either pass package files:      $0 build/noarch/*.apk
-or point SEEDEX_FEED at a feed: SEEDEX_FEED=https://example.org/seedex $0 [--no-luci]"
 fi
 
 fetch() {
@@ -96,7 +92,7 @@ log "configuring feeds"
 mkdir -p "${REPOS_FILE%/*}"
 {
 	[ "$awg_ok" = 0 ] || echo "$AWG_FEED/$release/$target/packages.adb"
-	[ -z "$SEEDEX_FEED" ] || echo "$SEEDEX_FEED/noarch/packages.adb"
+	echo "$SEEDEX_FEED/noarch/packages.adb"
 } >"$REPOS_FILE"
 [ -s "$REPOS_FILE" ] && sed 's/^/  /' "$REPOS_FILE" || echo "  (none beyond the stock OpenWrt feeds)"
 

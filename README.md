@@ -68,7 +68,7 @@ You need a router running OpenWrt 25.x or newer with outbound internet access.
 
 ```sh
 wget -O install.sh https://aggnostos.github.io/seedex-openwrt/install.sh
-SEEDEX_FEED=https://aggnostos.github.io/seedex-openwrt sh install.sh
+sh install.sh
 ```
 
 This adds the Seedex package feed, installs `seedex-box` with the `sdx`
