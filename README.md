@@ -65,7 +65,7 @@ Uplink:
   Intercept:  on
 
 Link:
-  [*] nl1        https://203.0.113.5:8447         2 vpn, 3 proxy, 4 min ago
+  [*] agent1        https://203.0.113.5:8447         2 vpn, 3 proxy, 4 min ago
 ```
 
 Everything above is also in LuCI under Services → Seedex.

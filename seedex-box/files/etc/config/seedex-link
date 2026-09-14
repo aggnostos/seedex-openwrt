@@ -4,12 +4,12 @@
 # pins the server's API certificate. Without `list config` every config the
 # server offers is imported; `sdx link select` narrows it to the listed ones.
 #
-#   config link 'nl1'
+#   config link 'agent1'
 #       option url         'https://203.0.113.5:8447'
 #       option token       '...'
 #       option fingerprint 'sha256//...'
-#       list   config      'nl1-router'
-#       list   config      'nl1-vless'
+#       list   config      'router'
+#       list   config      'vless'
 #
 # Every 30 minutes (cron) and on demand with `sdx link sync` the router
 # fetches the configs, replaces changed ones, adds new ones, drops the ones
