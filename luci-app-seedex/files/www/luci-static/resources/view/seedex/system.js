@@ -4,6 +4,7 @@
 'require seedex.api as api';
 
 var SCOPES = [ [ '', _('All') ], [ 'vpn', 'VPN' ], [ 'proxy', 'Proxy' ], [ 'router', 'Router' ] ];
+var LOG_SCOPES = SCOPES.concat([ [ 'dns', 'DNS' ] ]);
 
 function readFile(file) {
 	return new Promise(function(resolve, reject) {
@@ -47,7 +48,7 @@ return view.extend({
 						picker.value = '';
 					}, api.fail);
 				}, self)
-			]), _('An AmneziaWG .conf, a sing-box .json or a router rules .json; commit it on the service page')),
+			]), _('An AmneziaWG .conf, a sing-box .json or a router rules .json; restart the service to apply it, commit to keep it')),
 			api.field(_('Reset'), E('div', {}, [
 				scope, ' ',
 				api.button(_('Reset'), 'cbi-button-negative', function() {
@@ -62,7 +63,7 @@ return view.extend({
 
 	renderLogs: function() {
 		var self = this;
-		var scope = api.select('', SCOPES);
+		var scope = api.select('', LOG_SCOPES);
 		var out = E('pre', { 'style': 'max-height:30em; overflow:auto' }, '');
 
 		var load = function() {

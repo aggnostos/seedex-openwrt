@@ -127,7 +127,7 @@ do_logs() {
 	svc=$(_field svc)
 	case "$svc" in
 	"") _run logs ;;
-	vpn | proxy | router) _run logs -e "seedex-$svc" ;;
+	vpn | proxy | router | dns) _run logs -e "seedex-$svc" ;;
 	*) _error "unknown service: $svc" ;;
 	esac
 }
