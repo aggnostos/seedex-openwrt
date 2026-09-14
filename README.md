@@ -1,4 +1,9 @@
-# Seedex
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-dark.svg">
+    <img src=".github/assets/logo-light.svg" alt="Seedex" width="320">
+  </picture>
+</p>
 
 Seedex turns an OpenWrt router into the privacy layer of a home network: all
 traffic leaves through tunnels to servers you own, DNS is read by no one along
@@ -80,4 +85,4 @@ router takes their native configs as they are.
 
 ## License
 
-GPL-2.0-only.
+GPL-2.0-o.
