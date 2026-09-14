@@ -215,7 +215,7 @@ return baseclass.extend({
 			parts.push(E('h4', {}, _('Changes not applied yet')),
 				E('p', {}, _('The service runs with its previous settings; a restart applies the new ones.')),
 				self.button(_('Restart'), 'cbi-button-action', act('restart'), ctx));
-		return E('div', { 'class': 'alert-message warning' }, parts);
+		return E('div', { 'class': 'alert-message warning', 'style': 'margin-top:1em' }, parts);
 	},
 
 	settingsCard: function(svc, keys, values, refresh, ctx) {
