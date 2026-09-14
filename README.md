@@ -5,6 +5,8 @@
   </picture>
 </p>
 
+<p align="center">English | <a href="README_RU.md">Русский</a></p>
+
 Seedex turns an OpenWrt router into the privacy layer of a home network: all
 traffic leaves through tunnels to servers you own, DNS is read by no one along
 the way, and you decide per domain, per list or per device what goes where.

@@ -1,5 +1,7 @@
 # sdx
 
+English | [Русский](sdx_ru.md)
+
 `sdx` is the command line of Seedex. It is built around four services —
 `router`, `vpn`, `proxy`, `dns` — plus `link`, the connection to your
 servers, and reads the same way everywhere:
