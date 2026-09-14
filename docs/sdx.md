@@ -21,7 +21,8 @@ shows its unsaved changes with Apply and Revert; OpenWrt's own Save & Apply
 does not see them.
 
 Entries — VPN and proxy configs, router rules — are addressed by name, or by
-their number in the `show` list.
+their number in the `show` list; `show`, `enable`, `disable` and `remove`
+take several at once.
 
 ## Every service
 
@@ -78,19 +79,19 @@ configs mean failover, not a choice to make.
 Whether the service runs, and every config with its state: the one carrying
 traffic is marked `[*]`, reachable ones show their RTT, disabled ones say so.
 
-### `sdx vpn show [name]`
+### `sdx vpn show [name ...]`
 
-Without a name, the configs with their tunnel interface and file. With one,
-the config's details and the contents of its file.
+Without a name, the configs with their tunnel interface and file. With names,
+each config's details and the contents of its file.
 
-### `sdx vpn enable <name>` / `disable <name>`
+### `sdx vpn enable <name ...>` / `disable <name ...>`
 
-Switch one config on or off without removing it. A disabled config keeps its
+Switch configs on or off without removing them. A disabled config keeps its
 file and comes back with `enable`.
 
-### `sdx vpn remove <name>`
+### `sdx vpn remove <name ...>`
 
-Remove a config. Its file is deleted the next time the service starts.
+Remove configs. Their files are deleted the next time the service starts.
 
 ### `sdx vpn export`
 
@@ -113,18 +114,19 @@ Whether the service runs, and every config: the outbound sing-box currently
 uses shows the tunnel's RTT and is marked `[*]` when the router routes
 through the proxy.
 
-### `sdx proxy show [name]`
+### `sdx proxy show [name ...]`
 
-Without a name, the configs with their files. With one, the config's outbounds.
+Without a name, the configs with their files. With names, each config's
+outbounds.
 
-### `sdx proxy enable <name>` / `disable <name>`
+### `sdx proxy enable <name ...>` / `disable <name ...>`
 
-Switch one config on or off. sing-box is rebuilt from the enabled ones at the
+Switch configs on or off. sing-box is rebuilt from the enabled ones at the
 next restart.
 
-### `sdx proxy remove <name>`
+### `sdx proxy remove <name ...>`
 
-Remove a config. Its file is deleted the next time the service starts.
+Remove configs. Their files are deleted the next time the service starts.
 
 ### `sdx proxy config`
 
@@ -164,9 +166,9 @@ never both. Device rules win over destination rules, so a device pinned to
 Whether the service runs, the routing mode, the kill switch, the watchdog
 interval, and the rules with their type and what they match.
 
-### `sdx router show [name]`
+### `sdx router show [name ...]`
 
-Without a name, the rules. With one, every field of that rule.
+Without a name, the rules. With names, every field of each rule.
 
 ### `sdx router add <name> type=... [matchers]`
 
@@ -192,13 +194,13 @@ Change a rule: `type=`, `name=`, the list options, and for the matchers
 `domain=` / `del-domain=` / `clear-domains`, `ip=` / `del-ip=` / `clear-ips`,
 `mac=` / `del-mac=` / `clear-macs`.
 
-### `sdx router enable <name>` / `disable <name>`
+### `sdx router enable <name ...>` / `disable <name ...>`
 
-Switch one rule on or off.
+Switch rules on or off.
 
-### `sdx router remove <name>`
+### `sdx router remove <name ...>`
 
-Remove a rule.
+Remove rules.
 
 ### `sdx router config`
 

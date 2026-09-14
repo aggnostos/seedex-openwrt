@@ -301,11 +301,11 @@ cmd_help() {
 	echo "  changes | apply | revert      Pending changes: show, save and restart, drop"
 	echo
 	section "Entries (rules in router, configs in vpn and proxy):"
-	echo "  show [#|name]                 List entries, or show one"
+	echo "  show [#|name ...]             List entries, or show some"
 	echo "  add <name> k=v ...            Add a rule; vpn and proxy take files via 'sdx import'"
 	echo "  update <#|name> k=v ...       Modify a rule"
-	echo "  enable | disable <#|name>     Toggle an entry (without an entry: the service)"
-	echo "  remove <#|name>               Remove an entry"
+	echo "  enable | disable <#|name ...> Toggle entries (without one: the service)"
+	echo "  remove <#|name ...>           Remove entries"
 	echo "  export                        Print the entries for 'sdx import'"
 	echo "  reset                         Drop every entry and its stored data"
 	echo

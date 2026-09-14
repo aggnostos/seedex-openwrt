@@ -80,12 +80,15 @@ _link_place() {
 }
 
 _link_sweep() {
-	local svc="$1" link="$2" keep="$3" idx=0 sid name removed=0
-	while uci -q get "seedex-$svc.@config[$idx]" >/dev/null 2>&1; do
-		sid=$(uci -q show "seedex-$svc.@config[$idx]" | head -1 | cut -d. -f2 | cut -d= -f1)
-		name=$(uci -q get "seedex-$svc.$sid.name")
+	local svc="$1" link="$2" keep="$3" idx=0 sids sid name removed=0
+	sids=""
+	while sid=$(_section_id_at "seedex-$svc" config "$idx") && [ -n "$sid" ]; do
+		sids="$sids $sid"
 		idx=$((idx + 1))
+	done
+	for sid in $sids; do
 		[ "$(uci -q get "seedex-$svc.$sid.link")" = "$link" ] || continue
+		name=$(uci -q get "seedex-$svc.$sid.name")
 		case " $keep " in
 		*" $name "*) continue ;;
 		esac

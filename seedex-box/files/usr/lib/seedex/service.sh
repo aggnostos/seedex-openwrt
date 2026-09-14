@@ -10,7 +10,7 @@ _uci_sanitize_id() {
 }
 
 _section_id_at() {
-	uci -N -q show "${1}.@${2}[$3]" 2>/dev/null | head -1 | cut -d. -f2 | cut -d= -f1
+	uci -X -q show "${1}.@${2}[$3]" 2>/dev/null | head -1 | cut -d. -f2 | cut -d= -f1
 }
 
 _find_section_by_name() {
@@ -47,19 +47,36 @@ _section_at() {
 		printf '%s\n' "${config}.${sid}"
 		;;
 	*)
-		uci -q get "${config}.@${type}[$ref]" >/dev/null 2>&1 ||
-			die "$label #$ref not found"
-		printf '%s\n' "${config}.@${type}[$ref]"
+		sid=$(_section_id_at "$config" "$type" "$ref")
+		[ -n "$sid" ] || die "$label #$ref not found"
+		printf '%s\n' "${config}.${sid}"
 		;;
 	esac
 }
 
+_sections_at() {
+	local config="$1" type="$2" label="$3" cmd="$4" ref
+	shift 4
+	[ $# -gt 0 ] || usage "sdx $cmd <#|name> ..."
+	for ref in "$@"; do
+		_section_at "$config" "$type" "$label" "$ref" "$cmd" || exit $?
+	done
+}
+
 _section_set_enabled() {
-	local config="$1" type="$2" label="$3" ref="$4" cmd="$5" value="$6"
-	local path
-	path=$(_section_at "$config" "$type" "$label" "$ref" "$cmd") || exit $?
-	uci set "${path}.enabled=${value}"
-	[ "$value" = "1" ] && echo "$label $(_ref_label "$ref") enabled" || echo "$label $(_ref_label "$ref") disabled"
+	local config="$1" type="$2" label="$3" cmd="$4" value="$5"
+	shift 5
+	local paths path ref word
+	paths=$(_sections_at "$config" "$type" "$label" "$cmd" "$@") || exit $?
+	[ "$value" = "1" ] && word=enabled || word=disabled
+	for ref in "$@"; do
+		path="${paths%%
+*}"
+		paths="${paths#*
+}"
+		uci set "${path}.enabled=${value}"
+		echo "$label $(_ref_label "$ref") $word"
+	done
 }
 
 _section_set() {
@@ -90,17 +107,19 @@ settable: $allowed"
 }
 
 _section_remove() {
-	local config="$1" type="$2" label="$3" ref="$4" cmd="$5"
-	shift 5
-
-	local path extra
-	path=$(_section_at "$config" "$type" "$label" "$ref" "$cmd") || exit $?
-	uci delete "$path" 2>/dev/null
-	for extra in "$@"; do
-		[ -n "$extra" ] && uci delete "$extra" 2>/dev/null
+	local config="$1" type="$2" label="$3" cmd="$4"
+	shift 4
+	local paths path ref
+	paths=$(_sections_at "$config" "$type" "$label" "$cmd" "$@") || exit $?
+	for ref in "$@"; do
+		path="${paths%%
+*}"
+		paths="${paths#*
+}"
+		uci delete "$path" 2>/dev/null
+		log_debug "${label}: removed $(_ref_label "$ref")"
+		echo "removed $label $(_ref_label "$ref")"
 	done
-	log_debug "${label}: removed $(_ref_label "$ref")"
-	echo "removed $label $(_ref_label "$ref")"
 }
 
 _module_config() {

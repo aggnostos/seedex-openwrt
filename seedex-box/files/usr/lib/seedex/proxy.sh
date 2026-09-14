@@ -14,6 +14,15 @@ _proxy_entry() {
 
 	case "$subcmd" in
 	show)
+		if [ $# -gt 1 ]; then
+			local ref first=1
+			for ref in "$@"; do
+				[ "$first" = 1 ] || echo
+				first=0
+				_proxy_entry show "$ref"
+			done
+			return 0
+		fi
 		local idx="$1"
 		if [ -z "$idx" ]; then
 			printf "    %-4s %-22s %s\n" "#" "NAME" "CONFIG"
@@ -57,15 +66,15 @@ _proxy_entry() {
 		;;
 
 	enable)
-		_section_set_enabled seedex-proxy config config "$1" "proxy enable" 1
+		_section_set_enabled seedex-proxy config config "proxy enable" 1 "$@"
 		;;
 
 	disable)
-		_section_set_enabled seedex-proxy config config "$1" "proxy disable" 0
+		_section_set_enabled seedex-proxy config config "proxy disable" 0 "$@"
 		;;
 
 	remove)
-		_section_remove seedex-proxy config config "$1" "proxy remove"
+		_section_remove seedex-proxy config config "proxy remove" "$@"
 		;;
 
 	esac
@@ -108,10 +117,10 @@ svc_help() {
 start	Start the service
 stop	Stop the service
 restart	Restart the service
-show [#|name]	List entries, or show one	List configs, or show one with its file
-enable [#|name]	Enable the service or an entry	Enable the service, or one config
-disable [#|name]	Disable the service or an entry	Disable the service (also at boot), or one config
-remove <#|name>	Remove an entry	Remove a config and stage its file for removal
+show [#|name ...]	List entries, or show some	List configs, or show the named ones with their files
+enable [#|name ...]	Enable the service or entries	Enable the service, or the named configs
+disable [#|name ...]	Disable the service or entries	Disable the service (also at boot), or the named configs
+remove <#|name ...>	Remove entries	Remove configs and stage their files for removal
 config	Manage service settings	Manage service settings: show, get <key>, set k=v ...
 changes	Show pending UCI changes
 apply	Save pending changes and restart

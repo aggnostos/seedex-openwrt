@@ -46,6 +46,15 @@ _router_entry() {
 
 	case "$subcmd" in
 	show)
+		if [ $# -gt 1 ]; then
+			local ref first=1
+			for ref in "$@"; do
+				[ "$first" = 1 ] || echo
+				first=0
+				_router_entry show "$ref"
+			done
+			return 0
+		fi
 		local idx="$1"
 		if [ -z "$idx" ]; then
 			printf "    %-4s %-20s %-5s %s\n" "#" "NAME" "TYPE" "SOURCE"
@@ -345,15 +354,15 @@ use 'sdx router update' to change it, or pick another name"
 		;;
 
 	enable)
-		_section_set_enabled seedex-router rule rule "$1" "router enable" 1
+		_section_set_enabled seedex-router rule rule "router enable" 1 "$@"
 		;;
 
 	disable)
-		_section_set_enabled seedex-router rule rule "$1" "router disable" 0
+		_section_set_enabled seedex-router rule rule "router disable" 0 "$@"
 		;;
 
 	remove)
-		_section_remove seedex-router rule rule "$1" "router remove"
+		_section_remove seedex-router rule rule "router remove" "$@"
 		;;
 
 	esac
@@ -480,12 +489,12 @@ svc_help() {
 start	Start the service
 stop	Stop the service
 restart	Restart the service
-show [#|name]	List entries, or show one	List rules, or show one with all its fields
+show [#|name ...]	List entries, or show some	List rules, or show the named ones with all their fields
 add <name> k=v ...	Add a rule	Add a rule: type=direct|overlay|block, then domain= ip= list_url= list_path= or mac=
 update <#|name> k=v ...	Modify an entry	Modify a rule: key=value, domain= del-domain= ip= del-ip= mac= del-mac=
-enable [#|name]	Enable the service or an entry	Enable the service, or one rule
-disable [#|name]	Disable the service or an entry	Disable the service (also at boot), or one rule
-remove <#|name>	Remove an entry	Remove a rule
+enable [#|name ...]	Enable the service or entries	Enable the service, or the named rules
+disable [#|name ...]	Disable the service or entries	Disable the service (also at boot), or the named rules
+remove <#|name ...>	Remove entries	Remove rules
 config	Manage service settings	Manage service settings: show, get <key>, set k=v ...
 changes	Show pending UCI changes
 apply	Save pending changes and restart
