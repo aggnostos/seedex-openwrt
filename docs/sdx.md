@@ -15,9 +15,9 @@ Changes made with `sdx` — adding, removing, enabling, updating, settings — a
 pending in UCI, like with any other OpenWrt package: the service picks them up
 at its next `restart`, `sdx commit` writes them to disk so they survive a
 reboot, `sdx revert` drops them. Review with `sdx changes`. Each works on one
-service (`sdx vpn commit`) or on all. In LuCI each page shows its pending
-changes with Commit and Revert buttons; OpenWrt's own Save & Apply does not
-see them.
+service (`sdx vpn commit`) or on all. In LuCI each page shows its unsaved
+changes with Apply (commit and restart) and Revert; OpenWrt's own Save & Apply
+does not see them.
 
 Entries — VPN and proxy configs, router rules — are addressed by name, or by
 their number in the `show` list.

@@ -200,21 +200,21 @@ return baseclass.extend({
 				return self.run(svc, action).catch(self.fail).then(refresh);
 			};
 		};
+		var apply = function() {
+			return self.run(svc, 'commit').then(function() {
+				return self.run(svc, 'restart');
+			}).catch(self.fail).then(refresh);
+		};
 		var parts = [];
-		if (lines.length && stale)
-			parts.push(E('h4', {}, _('Changes not applied yet')), E('pre', {}, lines.join('\n')),
-				E('p', {}, _('A restart applies them; commit keeps them across reboots.')));
-		else if (lines.length)
-			parts.push(E('h4', {}, _('Changes applied, not saved')), E('pre', {}, lines.join('\n')),
-				E('p', {}, _('They are in effect now; commit keeps them across reboots, revert drops them.')));
+		if (lines.length)
+			parts.push(E('h4', {}, _('Unsaved changes')), E('pre', {}, lines.join('\n')),
+				E('p', {}, _('Apply saves them and restarts the service; revert drops them.')),
+				self.button(_('Apply'), 'cbi-button-positive', apply, ctx), ' ',
+				self.button(_('Revert'), 'cbi-button-negative', act('revert'), ctx));
 		else
 			parts.push(E('h4', {}, _('Changes not applied yet')),
-				E('p', {}, _('The service runs with its previous settings; a restart applies the new ones.')));
-		if (stale)
-			parts.push(self.button(_('Restart'), 'cbi-button-action', act('restart'), ctx), ' ');
-		if (lines.length)
-			parts.push(self.button(_('Commit'), 'cbi-button-positive', act('commit'), ctx),
-				' ', self.button(_('Revert'), 'cbi-button-negative', act('revert'), ctx));
+				E('p', {}, _('The service runs with its previous settings; a restart applies the new ones.')),
+				self.button(_('Restart'), 'cbi-button-action', act('restart'), ctx));
 		return E('div', { 'class': 'alert-message warning' }, parts);
 	},
 
