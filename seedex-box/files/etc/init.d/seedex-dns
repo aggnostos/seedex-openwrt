@@ -193,6 +193,7 @@ service_triggers() {
 start_service() {
 	_load_config
 	_resolver || return 1
+	seedex_config_stamp dns
 	_disable_stock_proxy
 
 	nft delete table inet "$NFT_TABLE" 2>/dev/null

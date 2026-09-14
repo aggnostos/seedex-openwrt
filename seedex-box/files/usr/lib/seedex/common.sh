@@ -59,14 +59,26 @@ seedex_service_enabled() {
 	[ ! -f "$SEEDEX_DISABLED_DIR/$1" ]
 }
 
+seedex_config_stamp() {
+	mkdir -p "$SEEDEX_RUNDIR/$1"
+	uci -q show "seedex-$1" 2>/dev/null | md5sum >"$SEEDEX_RUNDIR/$1/config.md5"
+}
+
+seedex_config_stale() {
+	local stamp="$SEEDEX_RUNDIR/$1/config.md5"
+	[ -f "$stamp" ] || return 1
+	[ "$(uci -q show "seedex-$1" 2>/dev/null | md5sum)" != "$(cat "$stamp")" ]
+}
+
 seedex_status_header() {
-	local svc="$1" label="$2" up=0
+	local svc="$1" label="$2" up=0 note=""
 	seedex_service_up "$svc" && up=1
-	if seedex_service_enabled "$svc"; then
-		printf '%s %s:\n' "$(seedex_mark "$up")" "$label"
-	else
-		printf '%s %s: disabled\n' "$(seedex_mark "$up")" "$label"
+	if ! seedex_service_enabled "$svc"; then
+		note=" disabled"
+	elif seedex_config_stale "$svc"; then
+		note=" restart needed"
 	fi
+	printf '%s %s:%s\n' "$(seedex_mark "$up")" "$label" "$note"
 }
 
 SEEDEX_VPN_DIR="/etc/seedex/vpn"

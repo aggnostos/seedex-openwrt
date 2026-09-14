@@ -191,22 +191,26 @@ return baseclass.extend({
 
 	pendingBanner: function(svc, status, refresh, ctx) {
 		var self = this;
-		var lines = (status.pending || {})[svc];
-		if (!lines || !lines.length)
+		var lines = (status.pending || {})[svc] || [];
+		var stale = !!(status.stale && status.stale[svc]);
+		if (!lines.length && !stale)
 			return '';
 		var act = function(action) {
 			return function() {
 				return self.run(svc, action).catch(self.fail).then(refresh);
 			};
 		};
-		return E('div', { 'class': 'alert-message warning' }, [
-			E('h4', {}, _('Pending changes')),
-			E('pre', {}, lines.join('\n')),
-			E('p', {}, _('They take effect at the next restart; commit keeps them across reboots.')),
-			self.button(_('Commit'), 'cbi-button-positive', act('commit'), ctx),
-			' ',
-			self.button(_('Revert'), 'cbi-button-negative', act('revert'), ctx)
-		]);
+		var parts = [];
+		if (lines.length)
+			parts.push(E('h4', {}, _('Pending changes')), E('pre', {}, lines.join('\n')));
+		else
+			parts.push(E('h4', {}, _('Changes not applied yet')));
+		parts.push(E('p', {}, _('A restart applies them; commit keeps them across reboots.')));
+		parts.push(self.button(_('Restart'), 'cbi-button-action', act('restart'), ctx));
+		if (lines.length)
+			parts.push(' ', self.button(_('Commit'), 'cbi-button-positive', act('commit'), ctx),
+				' ', self.button(_('Revert'), 'cbi-button-negative', act('revert'), ctx));
+		return E('div', { 'class': 'alert-message warning' }, parts);
 	},
 
 	settingsCard: function(svc, keys, values, refresh, ctx) {

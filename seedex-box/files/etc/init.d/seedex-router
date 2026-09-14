@@ -476,6 +476,7 @@ service_triggers() {
 start_service() {
 	_load_config
 	_load_interfaces
+	seedex_config_stamp router
 
 	log_debug "starting (default_route=$DEFAULT_ROUTE, interfaces: $INTERFACES)"
 	mkdir -p "$ROUTER_RUNDIR" "$IPS_DIR"

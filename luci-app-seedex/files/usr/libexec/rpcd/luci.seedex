@@ -35,16 +35,19 @@ _pending() {
 	done | jq -s 'add // {}'
 }
 
-do_status() {
-	local svc running=""
+_flags() {
+	local svc
 	for svc in $SERVICES; do
-		running="$running $svc $(seedex_service_up "$svc" && echo true || echo false)"
-	done
-	jq -n --arg text "$(sdx 2>&1)" --arg running "$running" --argjson pending "$(_pending)" '{
-		text: $text,
-		running: ($running | split(" ") | map(select(length > 0)) | [range(0; length; 2) as $i | {key: .[$i], value: (.[$i + 1] == "true")}] | from_entries),
-		pending: $pending
-	}'
+		printf '%s %s %s\n' "$svc" "$(seedex_service_up "$svc" && echo true || echo false)" \
+			"$(seedex_config_stale "$svc" && echo true || echo false)"
+	done | jq -R -s 'split("\n") | map(select(length > 0) | split(" "))
+		| { running: (map({key: .[0], value: (.[1] == "true")}) | from_entries),
+		    stale: (map({key: .[0], value: (.[2] == "true")}) | from_entries) }'
+}
+
+do_status() {
+	jq -n --arg text "$(sdx 2>&1)" --argjson flags "$(_flags)" --argjson pending "$(_pending)" \
+		'$flags + {text: $text, pending: $pending}'
 }
 
 do_config() {

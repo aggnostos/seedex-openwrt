@@ -160,6 +160,7 @@ service_triggers() {
 
 start_service() {
 	config_load seedex-vpn
+	seedex_config_stamp vpn
 	seedex_prune_configs seedex-vpn config "$SEEDEX_VPN_DIR"
 
 	if [ -s "$RUNDIR/active_ifaces" ]; then
