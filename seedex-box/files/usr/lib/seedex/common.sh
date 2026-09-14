@@ -488,6 +488,22 @@ SEEDEX_ROUTER_DIRECT_DYN="direct_dyn"
 SEEDEX_IPV4_RE='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$'
 SEEDEX_IPV6_RE='^[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(/[0-9]+)?$'
 
+seedex_link_hosts() {
+	local url host
+	for url in $(uci -q show seedex-link 2>/dev/null | sed -n "s/^seedex-link\.[^.]*\.url='\(.*\)'$/\1/p"); do
+		host="${url#*://}"
+		host="${host%%/*}"
+		case "$host" in
+		\[*\]*)
+			host="${host#[}"
+			host="${host%%]*}"
+			;;
+		*) host="${host%%:*}" ;;
+		esac
+		[ -z "$host" ] || printf '%s\n' "$host"
+	done
+}
+
 seedex_resolve() {
 	local domain="$1" family="${2:-4}" re result
 	[ "$family" = 6 ] && re="$SEEDEX_IPV6_RE" || re="$SEEDEX_IPV4_RE"

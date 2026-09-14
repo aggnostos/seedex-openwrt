@@ -1,0 +1,17 @@
+# Servers running seedex-agent that this router pulls its configs from.
+# `sdx link add <router>` on the server prints the exact `sdx link add`
+# command for the router; it creates a section like this one. The fingerprint
+# pins the server's API certificate. Without `list config` every config the
+# server offers is imported; `sdx link select` narrows it to the listed ones.
+#
+#   config link 'nl1'
+#       option url         'https://203.0.113.5:8447'
+#       option token       '...'
+#       option fingerprint 'sha256//...'
+#       list   config      'nl1-router'
+#       list   config      'nl1-vless'
+#
+# Every 30 minutes (cron) and on demand with `sdx link sync` the router
+# fetches the configs, replaces changed ones, adds new ones, drops the ones
+# the server no longer has or that are no longer selected, and restarts the
+# services that changed.

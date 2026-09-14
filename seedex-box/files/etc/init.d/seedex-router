@@ -66,6 +66,7 @@ _endpoint_hosts() {
 	{
 		_endpoints_of seedex-vpn config awg
 		_endpoints_of seedex-proxy config singbox
+		seedex_link_hosts
 	} | sort -u
 }
 

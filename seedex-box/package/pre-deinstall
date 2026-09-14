@@ -4,6 +4,11 @@ set -e
 
 [ -z "${IPKG_INSTROOT:-}" ] || exit 0
 
+if [ -f /etc/crontabs/root ]; then
+	sed -i '/sdx link sync/d' /etc/crontabs/root
+	/etc/init.d/cron restart 2>/dev/null || true
+fi
+
 for svc in seedex seedex-router seedex-vpn seedex-proxy seedex-dns; do
 	[ -x "/etc/init.d/$svc" ] || continue
 	"/etc/init.d/$svc" stop 2>/dev/null || true

@@ -208,6 +208,10 @@ cmd_status() {
 		echo
 		_svc "$svc" status
 	done
+	echo
+	# shellcheck source=files/usr/lib/seedex/link.sh
+	. /usr/lib/seedex/link.sh
+	link_status
 }
 
 cmd_logs() {
@@ -306,6 +310,13 @@ cmd_help() {
 	echo "  reset                         Drop every entry and its stored data"
 	echo
 	section "Box:"
+	echo "  link add <name> <url> <token> <fingerprint>"
+	echo "                                Pair with a server running seedex-agent"
+	echo "  link remove <name>            Unpair and drop the configs it delivered"
+	echo "  link show <name>              List the configs the server offers"
+	echo "  link select <name> <config> ... | --all"
+	echo "                                Choose which of them to import"
+	echo "  link sync [<name>]            Pull configs now (cron does it every 30 minutes)"
 	echo "  import <path>                 Import a config file, or every config in a directory"
 	echo "  logs                          Show seedex logs (passes args to logread)"
 	echo "  version                       Show version"
@@ -365,6 +376,12 @@ case "${1:-}" in
 import)
 	shift
 	cmd_import "$1"
+	;;
+link)
+	shift
+	# shellcheck source=files/usr/lib/seedex/link.sh
+	. /usr/lib/seedex/link.sh
+	cmd_link "$@"
 	;;
 logs)
 	shift

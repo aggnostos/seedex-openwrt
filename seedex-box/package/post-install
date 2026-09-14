@@ -12,6 +12,12 @@ if [ -x /etc/init.d/https-dns-proxy ]; then
 	/etc/init.d/https-dns-proxy stop >/dev/null 2>&1 || true
 fi
 
+grep -q 'sdx link sync' /etc/crontabs/root 2>/dev/null || {
+	mkdir -p /etc/crontabs
+	echo '*/30 * * * * /usr/bin/sdx link sync >/dev/null 2>&1' >>/etc/crontabs/root
+	/etc/init.d/cron restart 2>/dev/null || true
+}
+
 /etc/init.d/seedex enable 2>/dev/null || true
 /etc/init.d/seedex-dns start 2>/dev/null || true
 
