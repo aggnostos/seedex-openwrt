@@ -45,12 +45,12 @@ Uplink:
   Kill switch:  on
   Watchdog:     every 30s
   Rules:
-    [*] ads                direct   list
-    [*] tv                 direct   1 client
+    [*] ads                block      list
+    [*] tv                 overlay    1 client
 
 [*] VPN:
   Configs:
-    [ ] awg0         362 ms
+    [ ] awg0        362 ms
     [ ] awg1        260 ms
 
 [*] Proxy:
