@@ -69,7 +69,7 @@ return view.extend({
 			var enabled = s.enabled == '1';
 			var domains = L.toArray(s.domain).length;
 			var ips = L.toArray(s.ip).length;
-			var clients = L.toArray(s.mac).length;
+			var clients = L.toArray(s.client_mac).length + L.toArray(s.client_ip).length;
 			var source = [];
 			if (clients) source.push(_('%d clients').format(clients));
 			if (domains) source.push(_('%d domains').format(domains));
@@ -118,7 +118,8 @@ return view.extend({
 			[ 'direct', _('direct — send via WAN') ],
 			[ 'block', _('block — NXDOMAIN for domains, drop for IPs') ]
 		]);
-		var macs = api.textarea(L.toArray(s.mac).join('\n'), 3, 'aa:bb:cc:dd:ee:ff');
+		var macs = api.textarea(L.toArray(s.client_mac).join('\n'), 3, 'aa:bb:cc:dd:ee:ff');
+		var clientIps = api.textarea(L.toArray(s.client_ip).join('\n'), 3, '192.168.1.20\n10.0.20.0/24');
 		var domains = api.textarea(L.toArray(s.domain).join('\n'), 6, 'youtube.com\ngooglevideo.com');
 		var ips = api.textarea(L.toArray(s.ip).join('\n'), 4, '1.1.1.1\n10.0.0.0/8\n2606:4700::/32');
 		var listUrl = api.input(s.list_url, 'https://example.org/domains.txt');
@@ -137,9 +138,10 @@ return view.extend({
 				args.push(oldName);
 				if (n !== oldName)
 					args.push('name=' + n);
-				args.push('type=' + type.value, 'clear-macs', 'clear-domains', 'clear-ips');
+				args.push('type=' + type.value, 'clear-client_macs', 'clear-client_ips', 'clear-domains', 'clear-ips');
 			}
-			splitList(macs.value).forEach(function(m) { args.push('mac=' + m); });
+			splitList(macs.value).forEach(function(m) { args.push('client_mac=' + m); });
+			splitList(clientIps.value).forEach(function(m) { args.push('client_ip=' + m); });
 			splitList(domains.value).forEach(function(d) { args.push('domain=' + d); });
 			splitList(ips.value).forEach(function(i) { args.push('ip=' + i); });
 			[ [ listUrl, 'list_url', 'del-url' ],
@@ -159,6 +161,7 @@ return view.extend({
 			api.field(_('Name'), name),
 			api.field(_('Type'), type),
 			api.field(_('Client MACs'), macs, _('Whole-client rule: all traffic from these devices; cannot be combined with destinations')),
+			api.field(_('Client IPs'), clientIps, _('Devices or subnets by address, e.g. a guest VLAN; same rule as MACs')),
 			api.field(_('Domains'), domains, _('One per line; subdomains are matched too')),
 			api.field(_('IPs'), ips, _('IPv4 or IPv6 addresses and CIDR ranges, one per line')),
 			api.field(_('List URL'), listUrl, _('Downloaded when the router starts')),

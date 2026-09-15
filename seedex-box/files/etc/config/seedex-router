@@ -48,15 +48,17 @@ config router 'main'
 #       option list_url     'https://example.org/domains.txt'
 #       option list_refresh '12h'
 #
-# Client rules: all traffic from these devices, matched by MAC address.
-# They take precedence over destination rules, so a device pinned to 'direct'
+# Client rules: all traffic from these devices, matched by MAC address or by
+# IP address / subnet (a guest VLAN, a client behind another router). They
+# take precedence over destination rules, so a device pinned to 'direct'
 # stays on WAN even for domains other rules send through the tunnel.
 #
 #   config rule 'tv'
-#       option name    'tv'
-#       option type    'direct'
-#       option enabled '1'
-#       list mac       'aa:bb:cc:dd:ee:ff'
+#       option name       'tv'
+#       option type       'direct'
+#       option enabled    '1'
+#       list client_mac   'aa:bb:cc:dd:ee:ff'
+#       list client_ip    '10.0.20.0/24'
 #
 # Sections are created by `sdx router add`, `sdx import <rules.json>` or LuCI.
 # None are shipped by default.

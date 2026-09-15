@@ -159,7 +159,8 @@ A rule has a `type` — what happens to matched traffic:
 - `direct` — straight to the provider
 - `block` — domains stop resolving, packets to the IPs are dropped
 
-and matches either destinations (`domain`, `ip`, a list) or devices (`mac`),
+and matches either destinations (`domain`, `ip`, a list) or devices
+(`client_mac`, `client_ip`),
 never both. Device rules win over destination rules, so a device pinned to
 `direct` stays direct even for domains other rules send through the tunnel.
 
@@ -182,19 +183,24 @@ Add a rule. Matchers, each as many times as needed:
   when the service starts and then every `list_refresh` (e.g. `12h`, `1d`);
   hosts-style files (`0.0.0.0 domain`) are accepted as they are
 - `list_path=<file>` — the same, from a file on the router
-- `mac=<aa:bb:cc:dd:ee:ff>` — every packet from that device
+- `client_mac=<aa:bb:cc:dd:ee:ff>` — every packet from that device
+- `client_ip=<address or CIDR>` — every packet from that address or subnet:
+  a guest VLAN, a device with a static address, a client behind another
+  router where its MAC is not visible
 
 ```sh
 sdx router add youtube type=overlay domain=youtube.com domain=googlevideo.com
 sdx router add ads type=block list_url=https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts list_refresh=1d
-sdx router add tv type=direct mac=aa:bb:cc:dd:ee:ff
+sdx router add tv type=direct client_mac=aa:bb:cc:dd:ee:ff
+sdx router add guests type=direct client_ip=10.0.20.0/24
 ```
 
 ### `sdx router update <name> ...`
 
 Change a rule: `type=`, `name=`, the list options, and for the matchers
 `domain=` / `del-domain=` / `clear-domains`, `ip=` / `del-ip=` / `clear-ips`,
-`mac=` / `del-mac=` / `clear-macs`.
+`client_mac=` / `del-client_mac=` / `clear-client_macs`,
+`client_ip=` / `del-client_ip=` / `clear-client_ips`.
 
 ### `sdx router enable <name ...>` / `disable <name ...>`
 

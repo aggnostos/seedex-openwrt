@@ -24,9 +24,20 @@ _check_mac() {
 	esac
 }
 
+_check_client_ip() {
+	case "$1" in
+	"" | *[!0-9a-fA-F:./]* | */ | /*) die "not an IP address or CIDR: $1" ;;
+	*::* | *:*:*:*:*:*:*:*) ;;
+	*:*) die "not an IP address or CIDR: $1" ;;
+	*[!0-9./]*) die "not an IP address or CIDR: $1" ;;
+	*.*.*.*) ;;
+	*) die "not an IP address or CIDR: $1" ;;
+	esac
+}
+
 _rule_kind() {
 	local path="$1"
-	if [ -n "$(uci -q get "${path}.mac")" ]; then
+	if [ -n "$(uci -q get "${path}.client_mac")$(uci -q get "${path}.client_ip")" ]; then
 		echo clients
 	elif [ -n "$(uci -q get "${path}.domain")$(uci -q get "${path}.ip")$(uci -q get "${path}.list_url")$(uci -q get "${path}.list_path")" ]; then
 		echo destinations
@@ -37,7 +48,7 @@ _rule_kind_allows() {
 	local path="$1" want="$2" have
 	have=$(_rule_kind "$path")
 	[ -z "$have" ] || [ "$have" = "$want" ] ||
-		die "a rule matches either clients (mac=) or destinations (domain=, ip=, list_*), not both"
+		die "a rule matches either clients (client_mac=, client_ip=) or destinations (domain=, ip=, list_*), not both"
 }
 
 _router_entry() {
@@ -75,7 +86,7 @@ _router_entry() {
 				local domains ips clients dcount=0 icount=0 ccount=0
 				domains=$(uci -q get "seedex-router.@rule[$idx].domain" 2>/dev/null)
 				ips=$(uci -q get "seedex-router.@rule[$idx].ip" 2>/dev/null)
-				clients=$(uci -q get "seedex-router.@rule[$idx].mac" 2>/dev/null)
+				clients="$(uci -q get "seedex-router.@rule[$idx].client_mac" 2>/dev/null) $(uci -q get "seedex-router.@rule[$idx].client_ip" 2>/dev/null)"
 				if [ -n "$domains" ]; then
 					for _d in $domains; do dcount=$((dcount + 1)); done
 				fi
@@ -131,16 +142,20 @@ _router_entry() {
 		shift
 
 		local type="" list_url="" list_path="" list_refresh=""
-		local add_domains="" add_ips="" add_macs=""
+		local add_domains="" add_ips="" add_macs="" add_clients=""
 
 		for arg in "$@"; do
 			case "$arg" in
 			type=*) type="${arg#*=}" ;;
 			domain=*) add_domains="${add_domains} ${arg#*=}" ;;
 			ip=*) add_ips="${add_ips} ${arg#*=}" ;;
-			mac=*)
+			client_mac=*)
 				_check_mac "${arg#*=}"
 				add_macs="${add_macs} $(echo "${arg#*=}" | tr 'A-F' 'a-f')"
+				;;
+			client_ip=*)
+				_check_client_ip "${arg#*=}"
+				add_clients="${add_clients} ${arg#*=}"
 				;;
 			list_url=*) list_url="${arg#*=}" ;;
 			list_path=*) list_path="${arg#*=}" ;;
@@ -151,8 +166,8 @@ _router_entry() {
 			esac
 		done
 
-		[ -z "$add_macs" ] || [ -z "$add_domains$add_ips$list_url$list_path" ] ||
-			die "a rule matches either clients (mac=) or destinations (domain=, ip=, list_*), not both"
+		[ -z "$add_macs$add_clients" ] || [ -z "$add_domains$add_ips$list_url$list_path" ] ||
+			die "a rule matches either clients (client_mac=, client_ip=) or destinations (domain=, ip=, list_*), not both"
 
 		[ -n "$type" ] || die "type is required: direct, overlay or block"
 		case "$type" in
@@ -161,7 +176,7 @@ _router_entry() {
 			die "type must be 'direct', 'overlay' or 'block'"
 			;;
 		esac
-		[ "$type" != block ] || [ -z "$add_macs" ] || die "block rules match destinations, not clients"
+		[ "$type" != block ] || [ -z "$add_macs$add_clients" ] || die "block rules match destinations, not clients"
 
 		local sid existing
 		sid=$(_uci_sanitize_id "$name")
@@ -187,7 +202,10 @@ use 'sdx router update' to change it, or pick another name"
 			uci add_list "seedex-router.${sid}.ip=${ip}"
 		done
 		for m in $add_macs; do
-			uci add_list "seedex-router.${sid}.mac=${m}"
+			uci add_list "seedex-router.${sid}.client_mac=${m}"
+		done
+		for m in $add_clients; do
+			uci add_list "seedex-router.${sid}.client_ip=${m}"
 		done
 
 		log_debug "router: added rule '$name' (type=$type)"
@@ -204,22 +222,40 @@ use 'sdx router update' to change it, or pick another name"
 		local changes=0
 		for arg in "$@"; do
 			case "$arg" in
-			mac=*)
+			client_mac=*)
 				_check_mac "${arg#*=}"
 				_rule_kind_allows "$path" clients
 				[ "$(uci -q get "${path}.type")" != block ] || die "block rules match destinations, not clients"
-				uci add_list "${path}.mac=$(echo "${arg#*=}" | tr 'A-F' 'a-f')"
-				echo "  + mac '${arg#*=}'"
+				uci add_list "${path}.client_mac=$(echo "${arg#*=}" | tr 'A-F' 'a-f')"
+				echo "  + client_mac '${arg#*=}'"
 				changes=$((changes + 1))
 				;;
-			del-mac=*)
-				uci del_list "${path}.mac=$(echo "${arg#*=}" | tr 'A-F' 'a-f')"
-				echo "  - mac '${arg#*=}'"
+			del-client_mac=*)
+				uci del_list "${path}.client_mac=$(echo "${arg#*=}" | tr 'A-F' 'a-f')"
+				echo "  - client_mac '${arg#*=}'"
 				changes=$((changes + 1))
 				;;
-			clear-macs)
-				uci delete "${path}.mac" 2>/dev/null
-				echo "  - all macs"
+			clear-client_macs)
+				uci delete "${path}.client_mac" 2>/dev/null
+				echo "  - all client_macs"
+				changes=$((changes + 1))
+				;;
+			client_ip=*)
+				_check_client_ip "${arg#*=}"
+				_rule_kind_allows "$path" clients
+				[ "$(uci -q get "${path}.type")" != block ] || die "block rules match destinations, not clients"
+				uci add_list "${path}.client_ip=${arg#*=}"
+				echo "  + client_ip '${arg#*=}'"
+				changes=$((changes + 1))
+				;;
+			del-client_ip=*)
+				uci del_list "${path}.client_ip=${arg#*=}"
+				echo "  - client_ip '${arg#*=}'"
+				changes=$((changes + 1))
+				;;
+			clear-client_ips)
+				uci delete "${path}.client_ip" 2>/dev/null
+				echo "  - all client_ips"
 				changes=$((changes + 1))
 				;;
 			add-domain=*)
@@ -258,7 +294,7 @@ use 'sdx router update' to change it, or pick another name"
 					die "type must be 'direct', 'overlay' or 'block'"
 					;;
 				esac
-				[ "$newtype" != block ] || [ -z "$(uci -q get "${path}.mac")" ] ||
+				[ "$newtype" != block ] || [ -z "$(uci -q get "${path}.client_mac")$(uci -q get "${path}.client_ip")" ] ||
 					die "block rules match destinations, not clients"
 				uci set "${path}.type=${newtype}"
 				echo "  type → $newtype"
@@ -369,7 +405,7 @@ use 'sdx router update' to change it, or pick another name"
 }
 
 svc_export() {
-	local idx=0 name type enabled url lpath refresh domains ips macs
+	local idx=0 name type enabled url lpath refresh domains ips macs clients
 	{
 		while uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx]" >/dev/null 2>&1; do
 			name=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].name")
@@ -380,12 +416,13 @@ svc_export() {
 			refresh=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].list_refresh")
 			domains=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].domain")
 			ips=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].ip")
-			macs=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].mac")
+			macs=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].client_mac")
+			clients=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].client_ip")
 			idx=$((idx + 1))
 
-			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
 				"$name" "$type" "$enabled" "$url" "$lpath" "$refresh" \
-				"$domains" "$ips" "$macs"
+				"$domains" "$ips" "$macs" "$clients"
 		done
 	} | jq -R -s '
 		def words: split(" ") | map(select(length > 0));
@@ -394,14 +431,14 @@ svc_export() {
 		  + (if $f[3] != "" then { list_url: $f[3] } else {} end)
 		  + (if $f[4] != "" then { list_path: $f[4] } else {} end)
 		  + (if $f[5] != "" then { list_refresh: $f[5] } else {} end)
-		  + (if $f[8] != ""
-		     then { mac: ($f[8] | words) }
+		  + (if $f[8] != "" or $f[9] != ""
+		     then { client_mac: ($f[8] | words), client_ip: ($f[9] | words) }
 		     else { domain: ($f[6] | words), ip: ($f[7] | words) } end) ]'
 }
 
 svc_import_file() {
 	local file="$1" tab sep records
-	local name type enabled url lpath refresh domains ips macs sid d
+	local name type enabled url lpath refresh domains ips macs clients sid d
 	tab=$(printf '\t')
 	sep=$(printf '\037')
 
@@ -413,11 +450,12 @@ svc_import_file() {
 		  f(.list_url), f(.list_path), f(.list_refresh),
 		  ((.domain // []) | map(tostring) | join(" ")),
 		  ((.ip // []) | map(tostring) | join(" ")),
-		  ((.mac // []) | map(tostring) | join(" ")) ] | @tsv
+		  ((.client_mac // []) | map(tostring) | join(" ")),
+		  ((.client_ip // []) | map(tostring) | join(" ")) ] | @tsv
 	' "$file" 2>/dev/null) || die "cannot parse '$file' — not a valid rules export"
 
 	printf '%s\n' "$records" | tr "$tab" "$sep" |
-		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs; do
+		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs clients; do
 			[ -n "$name" ] || continue
 			sid=$(_uci_sanitize_id "$name")
 
@@ -426,7 +464,7 @@ svc_import_file() {
 			uci set "${SVC_ID}.${sid}.type=${type}"
 			uci set "${SVC_ID}.${sid}.enabled=${enabled}"
 
-			for d in list_url list_path list_refresh domain ip mac; do
+			for d in list_url list_path list_refresh domain ip client_mac client_ip; do
 				uci -q delete "${SVC_ID}.${sid}.${d}"
 			done
 			_uci_set_if "${SVC_ID}.${sid}" list_url "$url"
@@ -440,7 +478,10 @@ svc_import_file() {
 				uci add_list "${SVC_ID}.${sid}.ip=${d}"
 			done
 			for d in $macs; do
-				uci add_list "${SVC_ID}.${sid}.mac=${d}"
+				uci add_list "${SVC_ID}.${sid}.client_mac=${d}"
+			done
+			for d in $clients; do
+				uci add_list "${SVC_ID}.${sid}.client_ip=${d}"
 			done
 
 			echo "added rule '$name' (type=$type)"
@@ -469,7 +510,7 @@ svc_status() {
 		url=$(uci -q get "seedex-router.@rule[$idx].list_url")
 		lpath=$(uci -q get "seedex-router.@rule[$idx].list_path")
 		domains=$(uci -q get "seedex-router.@rule[$idx].domain")
-		clients=$(uci -q get "seedex-router.@rule[$idx].mac")
+		clients="$(uci -q get "seedex-router.@rule[$idx].client_mac") $(uci -q get "seedex-router.@rule[$idx].client_ip")"
 		n=0
 		for _ in $domains; do n=$((n + 1)); done
 		src=""
@@ -490,8 +531,8 @@ start	Start the service
 stop	Stop the service
 restart	Restart the service
 show [#|name ...]	List entries, or show some	List rules, or show the named ones with all their fields
-add <name> k=v ...	Add a rule	Add a rule: type=direct|overlay|block, then domain= ip= list_url= list_path= or mac=
-update <#|name> k=v ...	Modify an entry	Modify a rule: key=value, domain= del-domain= ip= del-ip= mac= del-mac=
+add <name> k=v ...	Add a rule	Add a rule: type=direct|overlay|block, then domain= ip= list_url= list_path= or client_mac= client_ip=
+update <#|name> k=v ...	Modify an entry	Modify a rule: key=value, domain= del-domain= ip= del-ip= client_mac= client_ip= del-client_*=
 enable [#|name ...]	Enable the service or entries	Enable the service, or the named rules
 disable [#|name ...]	Disable the service or entries	Disable the service (also at boot), or the named rules
 remove <#|name ...>	Remove entries	Remove rules

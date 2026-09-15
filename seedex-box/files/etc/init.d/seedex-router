@@ -225,26 +225,41 @@ _collect_rule_clients() {
 	[ "$type" = "$RULE_TYPE_FILTER" ] || return 0
 
 	COLLECTED=""
-	config_list_foreach "$section" mac _collect_item
+	config_list_foreach "$section" client_mac _collect_item
 	for addr in $COLLECTED; do
 		echo "$addr" >>"${IPS_DIR}/client_${type}.mac"
+	done
+	COLLECTED=""
+	config_list_foreach "$section" client_ip _collect_item
+	for addr in $COLLECTED; do
+		case "$addr" in
+		*:*) echo "$addr" >>"${IPS_DIR}/client_${type}.ip6" ;;
+		*) echo "$addr" >>"${IPS_DIR}/client_${type}.ip" ;;
+		esac
 	done
 	COLLECTED=""
 }
 
 collect_rule_clients() {
 	local rule_type="$1" f
-	f="${IPS_DIR}/client_${rule_type}.mac"
 	mkdir -p "$IPS_DIR"
-	: >"$f"
+	for f in "${IPS_DIR}/client_${rule_type}.mac" "${IPS_DIR}/client_${rule_type}.ip" "${IPS_DIR}/client_${rule_type}.ip6"; do
+		: >"$f"
+	done
 	RULE_TYPE_FILTER="$rule_type"
 	config_foreach _collect_rule_clients rule
-	sort -u "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+	for f in "${IPS_DIR}/client_${rule_type}.mac" "${IPS_DIR}/client_${rule_type}.ip" "${IPS_DIR}/client_${rule_type}.ip6"; do
+		sort -u "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+	done
 }
 
 _load_client_sets() {
-	load_nft_set client_direct_mac "${IPS_DIR}/client_direct.mac"
-	load_nft_set client_overlay_mac "${IPS_DIR}/client_overlay.mac"
+	local t
+	for t in direct overlay; do
+		load_nft_set "client_${t}_mac" "${IPS_DIR}/client_${t}.mac"
+		load_nft_set "client_${t}_ip" "${IPS_DIR}/client_${t}.ip"
+		load_nft_set "client_${t}_ip6" "${IPS_DIR}/client_${t}.ip6"
+	done
 }
 
 setup_nftables() {
@@ -298,6 +313,10 @@ table inet ${NFT_TABLE} {
   set dns_bootstrap6 { type ipv6_addr; }
   set client_direct_mac { type ether_addr; }
   set client_overlay_mac { type ether_addr; }
+  set client_direct_ip { type ipv4_addr; flags interval; auto-merge; }
+  set client_overlay_ip { type ipv4_addr; flags interval; auto-merge; }
+  set client_direct_ip6 { type ipv6_addr; flags interval; auto-merge; }
+  set client_overlay_ip6 { type ipv6_addr; flags interval; auto-merge; }
   chain prerouting {
     type filter hook prerouting priority mangle; policy accept;
     ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } accept
@@ -308,6 +327,10 @@ table inet ${NFT_TABLE} {
     ip6 daddr @endpoint_ips6 accept
     ether saddr @client_direct_mac accept
     ether saddr @client_overlay_mac meta mark set ${FWMARK} accept
+    ip saddr @client_direct_ip accept
+    ip saddr @client_overlay_ip meta mark set ${FWMARK} accept
+    ip6 saddr @client_direct_ip6 accept
+    ip6 saddr @client_overlay_ip6 meta mark set ${FWMARK} accept
     ip daddr @${NFT_DIRECT_SET} accept
     ip daddr @${NFT_DIRECT_DYN} accept
     ip6 daddr @${NFT_DIRECT_SET6} accept
@@ -351,7 +374,8 @@ _refresh_nft_sets() {
 	local set
 	for set in endpoint_ips "$NFT_OVERLAY_SET" "$NFT_DIRECT_SET" block_ips \
 		endpoint_ips6 "$NFT_OVERLAY_SET6" "$NFT_DIRECT_SET6" block_ips6 \
-		client_direct_mac client_overlay_mac; do
+		client_direct_mac client_overlay_mac client_direct_ip client_overlay_ip \
+		client_direct_ip6 client_overlay_ip6; do
 		nft flush set inet "$NFT_TABLE" "$set" 2>/dev/null
 	done
 	_load_ip_sets

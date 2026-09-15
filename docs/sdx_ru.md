@@ -162,7 +162,7 @@ overlay, когда ни один туннель не поднят, вместо
 - `block` — домены перестают резолвиться, пакеты к IP отбрасываются
 
 и оно совпадает либо по назначению (`domain`, `ip`, список), либо по
-устройству (`mac`), но не по обоим. Правила по устройству сильнее правил по
+устройству (`client_mac`, `client_ip`), но не по обоим. Правила по устройству сильнее правил по
 назначению, так что устройство, закреплённое за `direct`, остаётся direct даже
 для доменов, которые другие правила отправляют в туннель.
 
@@ -185,19 +185,24 @@ overlay, когда ни один туннель не поднят, вместо
   при старте сервиса и затем каждые `list_refresh` (например `12h`, `1d`);
   файлы в формате hosts (`0.0.0.0 domain`) принимаются как есть
 - `list_path=<file>` — то же из файла на роутере
-- `mac=<aa:bb:cc:dd:ee:ff>` — каждый пакет от этого устройства
+- `client_mac=<aa:bb:cc:dd:ee:ff>` — каждый пакет от этого устройства
+- `client_ip=<address or CIDR>` — каждый пакет с этого адреса или подсети:
+  гостевой VLAN, устройство со статическим адресом, клиент за другим
+  роутером, чей MAC не виден
 
 ```sh
 sdx router add youtube type=overlay domain=youtube.com domain=googlevideo.com
 sdx router add ads type=block list_url=https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts list_refresh=1d
-sdx router add tv type=direct mac=aa:bb:cc:dd:ee:ff
+sdx router add tv type=direct client_mac=aa:bb:cc:dd:ee:ff
+sdx router add guests type=direct client_ip=10.0.20.0/24
 ```
 
 ### `sdx router update <name> ...`
 
 Изменить правило: `type=`, `name=`, опции списка, а для матчеров
 `domain=` / `del-domain=` / `clear-domains`, `ip=` / `del-ip=` / `clear-ips`,
-`mac=` / `del-mac=` / `clear-macs`.
+`client_mac=` / `del-client_mac=` / `clear-client_macs`,
+`client_ip=` / `del-client_ip=` / `clear-client_ips`.
 
 ### `sdx router enable <name ...>` / `disable <name ...>`
 
