@@ -117,11 +117,137 @@ _link_selected() {
 
 _link_wanted() {
 	local selected="$1" name="$2"
-	[ -z "$selected" ] && return 0
 	case " $selected " in
+	"  ") return 1 ;;
+	*" * "*) return 0 ;;
 	*" $name "*) return 0 ;;
 	esac
 	return 1
+}
+
+_link_offer() {
+	local name="$1" tmp payload err svc ext f c
+	tmp=$(mktemp -d)
+	payload="$tmp/configs.json"
+	if ! err=$(_link_fetch "$name" "$payload"); then
+		rm -rf "$tmp"
+		die "$name: $err"
+	fi
+	_link_unpack "$payload" "$tmp"
+	for svc in vpn proxy; do
+		case "$svc" in
+		vpn) ext=conf ;;
+		*) ext=json ;;
+		esac
+		for f in "$tmp/$svc"/*."$ext"; do
+			[ -f "$f" ] || continue
+			c="${f##*/}"
+			printf '%s:%s\n' "$svc" "${c%.*}"
+		done
+	done
+	rm -rf "$tmp"
+}
+
+_link_pick_draw() {
+	local cursor="$1" selected="$2" i=0 item svc name last="" mark pointer
+	shift 2
+	for item in "$@"; do
+		svc="${item%%:*}"
+		name="${item#*:}"
+		if [ "$svc" != "$last" ]; then
+			printf '\033[2K%s:\r\n' "$svc"
+			last="$svc"
+		fi
+		mark=' '
+		case " $selected " in
+		*" $name "*) mark=x ;;
+		esac
+		pointer=' '
+		[ "$i" = "$cursor" ] && pointer='>'
+		printf '\033[2K  %s [%s] %s\r\n' "$pointer" "$mark" "$name"
+		i=$((i + 1))
+	done
+}
+
+_link_pick() {
+	local title="$1" selected="$2" cursor=0 count=$# lines key item name svc last=""
+	shift 2
+	count=$#
+	lines=0
+	for item in "$@"; do
+		svc="${item%%:*}"
+		[ "$svc" = "$last" ] || lines=$((lines + 1))
+		last="$svc"
+		lines=$((lines + 1))
+	done
+	exec 3<>/dev/tty
+	LINK_PICK_STTY=$(stty -g <&3)
+	trap '_link_pick_restore; exit 130' INT TERM
+	trap _link_pick_restore EXIT
+	stty raw -echo <&3
+	printf '\033[?25l%s\r\n\r\n' "$title" >&3
+	_link_pick_draw "$cursor" "$selected" "$@" >&3
+	while :; do
+		key=$(dd bs=1 count=1 2>/dev/null <&3)
+		case "$key" in
+		"$(printf '\033')")
+			key=$(dd bs=1 count=2 2>/dev/null <&3)
+			case "$key" in
+			"[A") key=k ;;
+			"[B") key=j ;;
+			*) continue ;;
+			esac
+			;;
+		esac
+		case "$key" in
+		k) [ "$cursor" -gt 0 ] && cursor=$((cursor - 1)) ;;
+		j) [ "$cursor" -lt $((count - 1)) ] && cursor=$((cursor + 1)) ;;
+		" ")
+			i=0
+			for item in "$@"; do
+				if [ "$i" = "$cursor" ]; then
+					name="${item#*:}"
+					case " $selected " in
+					*" $name "*) selected=$(printf '%s' " $selected " | sed "s/ $name / /; s/^ *//; s/ *$//") ;;
+					*) selected="${selected:+$selected }$name" ;;
+					esac
+				fi
+				i=$((i + 1))
+			done
+			;;
+		a)
+			selected=""
+			for item in "$@"; do selected="${selected:+$selected }${item#*:}"; done
+			;;
+		n) selected="" ;;
+		"" | "$(printf '\r')" | "$(printf '\n')") break ;;
+		q | "$(printf '\003')")
+			printf '\r\n' >&3
+			_link_pick_restore
+			trap - EXIT INT TERM
+			return 1
+			;;
+		esac
+		printf '\033[%sA' "$lines" >&3
+		_link_pick_draw "$cursor" "$selected" "$@" >&3
+	done
+	printf '\r\n' >&3
+	_link_pick_restore
+	trap - EXIT INT TERM
+	printf '%s\n' "$selected"
+}
+
+_link_pick_restore() {
+	[ -n "${LINK_PICK_STTY:-}" ] || return 0
+	stty "$LINK_PICK_STTY" <&3 2>/dev/null
+	printf '\033[?25h' >&3 2>/dev/null
+	exec 3>&-
+	LINK_PICK_STTY=""
+}
+
+_link_pick_or_die() {
+	[ -t 0 ] && [ -t 1 ] || die "no terminal — pass the configs by name: sdx link select $1 <config> ... | --all"
+	command -v stty >/dev/null 2>&1 || die "stty not found — install it with: apk add coreutils-stty"
 }
 
 _link_unpack() {
@@ -181,6 +307,7 @@ _link_sync_one() {
 	done
 	rm -rf "$tmp"
 	for c in $selected; do
+		[ "$c" != "*" ] || continue
 		case " $seen " in
 		*" $c "*) ;;
 		*) missing=$((missing + 1)) ;;
@@ -257,7 +384,13 @@ remove it first with: sdx link remove $name"
 	uci commit seedex-link
 	_link_expose "$url"
 	echo "added link '$name'"
-	_link_sync_one "$name"
+	if [ -z "$(_link_offer "$name")" ]; then
+		echo "$name offers no configs yet — add some on the server, then: sdx link select $name"
+	elif [ -t 0 ] && [ -t 1 ]; then
+		link_select "$name"
+	else
+		echo "pick the configs to import with: sdx link select $name"
+	fi
 }
 
 link_remove() {
@@ -310,7 +443,10 @@ link_show() {
 		[ "$any" = 1 ] || echo "  $svc: none"
 	done
 	rm -rf "$tmp"
-	[ -z "$(_link_selected "$name")" ] && echo "Selection: all (narrow it with 'sdx link select $name <config> ...')"
+	case "$(_link_selected "$name")" in
+	"*") echo "Selection: all" ;;
+	"") echo "Selection: none (pick with 'sdx link select $name')" ;;
+	esac
 }
 
 _owner_of() {
@@ -320,25 +456,42 @@ _owner_of() {
 }
 
 link_select() {
-	local name="$1" c
-	[ $# -ge 2 ] || usage "sdx link select <name> <config> ... | --all"
+	local name="$1" c offered picked
+	[ -n "$name" ] || usage "sdx link select <name> [<config> ... | --all]"
 	shift
 	_link_section "$name"
+	if [ $# -eq 0 ]; then
+		_link_pick_or_die "$name"
+		offered=$(_link_offer "$name")
+		[ -n "$offered" ] || die "$name offers no configs yet"
+		picked=$(_link_selected "$name")
+		[ "$picked" = "*" ] && picked=$(printf '%s\n' "$offered" | sed 's/^[^:]*://' | tr '\n' ' ')
+		# shellcheck disable=SC2086
+		picked=$(_link_pick "$name — space: toggle, enter: confirm, a: all, n: none, q: cancel" "$picked" $offered) || {
+			echo "$name: selection unchanged"
+			return 0
+		}
+		# shellcheck disable=SC2086
+		set -- $picked
+	fi
 	uci -q delete "seedex-link.$name.config"
-	if [ "$1" != "--all" ]; then
+	if [ "${1:-}" = "--all" ]; then
+		uci add_list "seedex-link.$name.config=*"
+		echo "$name: importing every config"
+	else
 		for c in "$@"; do
 			case "$c" in
 			"" | *[!A-Za-z0-9._-]*) die "invalid config name '$c'" ;;
 			esac
 			uci add_list "seedex-link.$name.config=$c"
 		done
+		if [ $# -eq 0 ]; then
+			echo "$name: importing nothing"
+		else
+			echo "$name: importing $*"
+		fi
 	fi
 	uci commit seedex-link
-	if [ "$1" = "--all" ]; then
-		echo "$name: importing every config"
-	else
-		echo "$name: importing only $*"
-	fi
 	_link_sync_one "$name" || echo "the selection is saved; the next sync will apply it"
 }
 
@@ -423,7 +576,7 @@ cmd_link() {
 			"add <name> <url> <token> <fingerprint>   Pair with a server (the command 'sdx link add' prints)" \
 			"remove <name>                            Unpair and drop the configs it delivered" \
 			"show <name>                              List the configs the server offers" \
-			"select <name> <config> ... | --all       Choose which of them to import" \
+			"select <name> [<config> ... | --all]     Choose which of them to import (a menu without names)" \
 			"sync [<name>]                            Pull configs now (cron does it every 30 minutes)" \
 			"<name> [<command> ...]                   Run the server's sdx: status, vpn add, proxy add ..."
 		;;

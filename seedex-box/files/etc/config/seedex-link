@@ -1,8 +1,9 @@
 # Servers running seedex-agent that this router pulls its configs from.
 # `sdx link add <router>` on the server prints the exact `sdx link add`
 # command for the router; it creates a section like this one. The fingerprint
-# pins the server's API certificate. Without `list config` every config the
-# server offers is imported; `sdx link select` narrows it to the listed ones.
+# pins the server's API certificate. `list config` names the configs the
+# router imports from this server; `sdx link select` edits it. Without any,
+# nothing is imported; a single '*' imports everything the server offers.
 #
 #   config link 'agent1'
 #       option url         'https://203.0.113.5:8447'

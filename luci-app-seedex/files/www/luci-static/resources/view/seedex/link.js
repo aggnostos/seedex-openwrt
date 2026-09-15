@@ -40,7 +40,8 @@ return view.extend({
 		};
 
 		var rows = this.links.map(function(l) {
-			var selection = l.selected.length ? l.selected.join(', ') : _('everything');
+			var selection = l.selected.indexOf('*') >= 0 ? _('everything')
+			              : l.selected.length ? l.selected.join(', ') : _('nothing');
 			return [
 				api.mark(l.ok),
 				l.name,
@@ -94,11 +95,15 @@ return view.extend({
 			api.field(_('Token'), token),
 			api.field(_('Fingerprint'), fp),
 			api.modalActions(_('Add'), function() {
-				return api.run('', 'link', [ 'add', name.value.trim(), url.value.trim(),
+				var n = name.value.trim();
+				return api.run('', 'link', [ 'add', n, url.value.trim(),
 					token.value.trim(), fp.value.trim() ]).then(function(out) {
 					ui.hideModal();
 					api.notify(out);
-				}, api.fail).then(refresh);
+					return refresh().then(function() {
+						return self.openConfigs({ name: n }, refresh);
+					});
+				}, api.fail);
 			}, self)
 		]);
 	},
@@ -111,7 +116,7 @@ return view.extend({
 		return api.linkConfigs(link.name).then(function(res) {
 			var boxes = [];
 			var all = E('input', { 'type': 'checkbox' });
-			all.checked = !res.selected.length;
+			all.checked = res.selected.indexOf('*') >= 0;
 
 			var group = function(svc, list) {
 				if (!list.length)
@@ -143,10 +148,6 @@ return view.extend({
 						boxes.filter(function(b) { return b.checked; }).forEach(function(b) {
 							args.push(b.value);
 						});
-					if (args.length < 3) {
-						api.fail(_('Pick at least one config, or import everything'));
-						return Promise.resolve();
-					}
 					return api.run('', 'link', args).then(function(out) {
 						ui.hideModal();
 						api.notify(out);
