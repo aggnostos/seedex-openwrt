@@ -6,6 +6,12 @@ set -e
 
 /etc/init.d/seedex enable 2>/dev/null || true
 
+grep -q 'sdx link sync' /etc/crontabs/root 2>/dev/null || {
+	mkdir -p /etc/crontabs
+	echo '*/30 * * * * /usr/bin/sdx link sync >/dev/null 2>&1' >>/etc/crontabs/root
+	/etc/init.d/cron restart 2>/dev/null || true
+}
+
 echo "seedex-box: upgraded on disk; running services keep the previous build until restarted:"
 echo "seedex-box:   /etc/init.d/seedex restart"
 
