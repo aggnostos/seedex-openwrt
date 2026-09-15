@@ -47,6 +47,17 @@ jobs:
         with:
           path: site
 
+      - name: Assemble the release
+        run: |
+          mkdir -p release
+          cp build/noarch/*.apk build/keys/seedex-feed.pem install.sh release/
+          cd release && sha256sum * > checksums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: release
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
@@ -56,3 +67,27 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release/* --clobber
+          else
+            gh release create "$tag" release/* --title "$tag" --notes ""
+          fi
