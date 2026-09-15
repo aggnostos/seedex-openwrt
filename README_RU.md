@@ -1,100 +1,77 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-dark.svg">
-    <img src=".github/assets/logo-light.svg" alt="Seedex" width="320">
+    <img src=".github/assets/logo-light.svg" alt="Seedex logo" width="320">
   </picture>
 </p>
 
 <p align="center"><a href="README.md">English</a> | Русский</p>
 
-Seedex превращает роутер на OpenWrt в слой приватности домашней сети: весь
-трафик уходит через туннели к вашим собственным серверам, DNS по пути никто
-не читает, а что куда идёт — по домену, по списку или по устройству — решаете
-вы.
+# Seedex
 
-## Модули
+Seedex — защитный слой сети для роутеров на OpenWrt: VPN и Proxy, удобная маршрутизация, защищённый DNS, управляемые одной командой или LuCI приложением.
 
-**Туннели.** Соединения с вашими серверами по AmneziaWG (`vpn`) и sing-box
-(`proxy`), сколько угодно одновременно. Роутер измеряет каждый туннель,
-держит трафик на самом быстром живом и переключает его, когда туннель падает.
+## Требования
 
-**Router.** Политика: что идёт через туннель, что напрямую к провайдеру, а
-что блокируется — по домену, по загружаемому списку или по устройству.
-Kill switch следит, чтобы при отсутствии живого туннеля трафик, который
-должен был идти через него, не ушёл в открытую.
+- Роутер на OpenWrt 25.x или новее с выходом в интернет.
+- Сервер с [seedex-agent](https://github.com/aggnostos/seedex-agent), AmneziaWG или sing-box.
 
-**DNS.** Приватный резолвер для всей сети: запросы уходят зашифрованными и
-через туннель, когда он есть; устройства, которые пытаются резолвить сами,
-всё равно отвечает роутер; домены рекламы и трекеров не резолвятся.
-
-**Link.** Соедините роутер один раз с сервером, на котором стоит
-[seedex-agent](https://github.com/aggnostos/seedex-agent), и дальше он сам
-держит конфиги туннелей в актуальном состоянии — выберите нужные и забудьте
-про копирование файлов.
-
-## Как это выглядит
-
-```
-$ sdx
-seedex v0.1.0
-
-Uplink:
-  [*] Internet             118 ms
-  [*] Overlay (anytls)     286 ms
-
-[*] Router:
-  Routing:      overlay
-  Kill switch:  on
-  Watchdog:     every 30s
-  Rules:
-    [*] ads                block      list
-    [*] tv                 overlay    1 client
-
-[*] VPN:
-  Configs:
-    [ ] awg0        362 ms
-    [ ] awg1        260 ms
-
-[*] Proxy:
-  Configs:
-    [*] anytls         286 ms
-    [ ] hysteria2
-    [ ] vless
-
-[*] DNS:
-  Upstream:   encrypted
-  Resolver:   cloudflare
-  Intercept:  on
-
-Link:
-  [*] agent1        https://203.0.113.5:8447         2 vpn, 3 proxy, 4 min ago
-```
-
-Всё то же самое есть в LuCI: Services → Seedex.
+> [!NOTE]
+> Пакеты `noarch`. Подходит любая платформа OpenWrt с `apk`.
 
 ## Установка
 
-Нужен роутер с OpenWrt 25.x или новее и выходом в интернет.
+### 1. Установите пакеты
+
+На роутере запустите установщик от root:
 
 ```sh
-wget -O install.sh https://aggnostos.github.io/seedex-openwrt/install.sh
-sh install.sh
+wget -O - https://aggnostos.github.io/seedex-openwrt/install.sh | sh
 ```
 
-Скрипт подключает фид пакетов Seedex, ставит `seedex-box` с командой `sdx` и
-`luci-app-seedex` для LuCI (`--no-luci`, чтобы пропустить) и запускает
-DNS. Туннели и маршрутизация включаются, как только у роутера появится конфиг
-с вашего сервера — вставленный через `sdx import` или полученный самим
-роутером после `sdx link add`. Дальше — в [описании команд](docs/sdx_ru.md).
+Установщик подключает фид пакетов Seedex, ставит `seedex-box` с командой `sdx` и `luci-app-seedex` для LuCI и запускает DNS. Чтобы обойтись без LuCI, запустите установщик как `| sh -s -- --no-luci`.
 
-## Сервер
+### 2. Подключите сервер
 
-Seedex нужен собственный сервер, к которому идут туннели.
-[seedex-agent](https://github.com/aggnostos/seedex-agent) поднимает его одной
-командой; роутер соединяется с ним одной вставленной строкой и дальше сам
-забирает конфиги. Любой другой сервер AmneziaWG или sing-box подойдёт так же —
-роутер принимает их родные конфиги как есть, через `sdx import`.
+Если вы используете [seedex-agent](https://github.com/aggnostos/seedex-agent), вставьте вывод команды `sdx link add <router>` на сервере и выберите конфигурационные файлы для импорта в открывшемся меню:
 
+```sh
+sdx link add nl1 https://203.0.113.5:8447 <token> <fingerprint>
+```
+
+Вы также можете импортировать нативные конфигурационные файлы AWG или sing-box:
+
+```sh
+sdx import awg.conf
+sdx import sing-box.json
+sdx apply
+```
+
+### 3. Проверьте статус
+
+Запустите `sdx`:
+
+```sh
+sdx
+```
+
+Раздел **Uplink** показывает туннель, который несёт трафик. В LuCI то же самое находится в **Services > Seedex**.
+
+### 4. Если что-то не работает
+
+Если роутер не маршрутизирует трафик используйте:
+
+- `sdx logs` для просмотра сервисных логов.
+
+- `sdx restart` для перезапуска сервисов в правильном порядке.
+## Что дальше
+
+- [Начало работы](https://docs.seedex.net/ru/getting-started) проводит через полную настройку, включая [seedex-agent](https://github.com/aggnostos/seedex-openwrt).
+- [Руководство по seedex-box](https://docs.seedex.net/ru/user-guide/seedex-box) описывает каждую команду `sdx` и приложение для LuCI.
+- [Для разработчиков](https://docs.seedex.net/ru/developer-guide/seedex-box) рассказывает о сборке, линте и структуре проекта.
+## Участие
+
+Сообщения об ошибках, предложения и pull request'ы приветствуются.
 ## Лицензия
 
 GPL-2.0.

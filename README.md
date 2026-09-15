@@ -1,100 +1,78 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-dark.svg">
-    <img src=".github/assets/logo-light.svg" alt="Seedex" width="320">
+    <img src=".github/assets/logo-light.svg" alt="Seedex logo" width="320">
   </picture>
 </p>
 
 <p align="center">English | <a href="README_RU.md">Русский</a></p>
 
-Seedex turns an OpenWrt router into the privacy layer of a home network: all
-traffic leaves through tunnels to servers you own, DNS is read by no one along
-the way, and you decide per domain, per list or per device what goes where.
+# Seedex
 
-## Modules
+Seedex is a network privacy layer for an OpenWrt routers: VPN and Proxy, convenient routing, secured DNS, managed with a single command or the LuCI app.
 
-**Tunnels.** Connections to your own servers over AmneziaWG (`vpn`) and
-sing-box (`proxy`), as many as you like at once. The router measures every
-tunnel, keeps the traffic on the fastest live one and moves it when a tunnel
-fails.
+## Requirements
 
-**Router.** The policy: what goes through a tunnel, what goes straight to the
-provider and what is blocked — by domain, by downloadable list or by device.
-A kill switch makes sure that when no tunnel is up, traffic meant for a tunnel
-goes nowhere rather than out in the open.
+- A router running OpenWrt 25.x or later with outbound internet access.
+- A server running [seedex-agent](https://github.com/aggnostos/seedex-agent), AmneziaWG or sing-box.
 
-**DNS.** A private resolver for the whole network: queries leave encrypted and
-through the tunnel when one is up, devices that try to resolve on their own
-are answered by the router anyway, and ad and tracker domains never resolve.
+> [!NOTE]
+> The packages are `noarch`. Every OpenWrt target with `apk` works.
 
-**Link.** Pair the router once with a server running
-[seedex-agent](https://github.com/aggnostos/seedex-agent), and it keeps its
-tunnel configs in sync from there on — pick the ones you want, and forget
-about copying files.
+## Installation
 
-## What it looks like
+### 1. Install the packages
 
-```
-$ sdx
-seedex v0.1.0
-
-Uplink:
-  [*] Internet             118 ms
-  [*] Overlay (anytls)     286 ms
-
-[*] Router:
-  Routing:      overlay
-  Kill switch:  on
-  Watchdog:     every 30s
-  Rules:
-    [*] ads                block      list
-    [*] tv                 overlay    1 client
-
-[*] VPN:
-  Configs:
-    [ ] awg0        362 ms
-    [ ] awg1        260 ms
-
-[*] Proxy:
-  Configs:
-    [*] anytls         286 ms
-    [ ] hysteria2
-    [ ] vless
-
-[*] DNS:
-  Upstream:   encrypted
-  Resolver:   cloudflare
-  Intercept:  on
-
-Link:
-  [*] agent1        https://203.0.113.5:8447         2 vpn, 3 proxy, 4 min ago
-```
-
-Everything above is also in LuCI under Services → Seedex.
-
-## Install
-
-You need a router running OpenWrt 25.x or newer with outbound internet access.
+On the router, run the installer as root:
 
 ```sh
-wget -O install.sh https://aggnostos.github.io/seedex-openwrt/install.sh
-sh install.sh
+wget -O - https://aggnostos.github.io/seedex-openwrt/install.sh | sh
 ```
 
-This adds the Seedex package feed, installs `seedex-box` with the `sdx`
-command and `luci-app-seedex` for LuCI (`--no-luci` to skip it), and starts
-the DNS service. Tunnels and routing start once the router has a config from
-your server — pasted with `sdx import`, or pulled on its own after `sdx link
-add`. See [what to do next](docs/sdx.md).
+The installer adds the Seedex package feed, installs `seedex-box` with the `sdx` command and `luci-app-seedex` for LuCI, and starts the DNS service. To skip LuCI, run the installer as `| sh -s -- --no-luci`.
 
-## Server
+### 2. Connect the server
 
-Seedex needs a server of your own to tunnel to. [seedex-agent](https://github.com/aggnostos/seedex-agent)
-sets one up with a single command; the router pairs with it by pasting one
-line and pulls its configs from there on. Any other AmneziaWG or sing-box
-server works just as well — the router takes their native configs as they
-are, via `sdx import`.
+If you use [seedex-agent](https://github.com/aggnostos/seedex-agent), paste the output of the `sdx link add <router>` command, and then pick the configs to import in the opened menu:
 
+```sh
+sdx link add agent https://203.0.113.5:8447 <token> <fingerprint>
+```
+
+You can also import native AWG or sing-box configuration files:
+
+```sh
+sdx import awg.conf
+sdx import sing-box.json
+sdx apply
+```
+
+### 3. Check the status
+
+Run `sdx`:
+
+```sh
+sdx
+```
+
+The **Uplink** section shows the tunnel that carries the traffic. In LuCI, the same information is under **Services > Seedex**.
+
+### 4. Troubleshoot
+
+If the router doesn't route traffic, check the following:
+
+
+- `sdx logs` to see the service logs.
+- `sdx restart` to restart everything the right order.
+
+## Where to go next
+
+- [Getting started](https://docs.seedex.net/getting-started) walks you through the full setup, including [seedex-agent](https://github.com/aggnostos/seedex-openwrt).
+- [seedex-box user guide](https://docs.seedex.net/user-guide/seedex-box) describes every `sdx` command and the LuCI app.
+- [Developer guide](https://docs.seedex.net/developer-guide/seedex-box) covers building, linting, and the project structure.
+## Contributing
+
+Bug reports, suggestions, and pull requests are welcome.
 ## License
 
 GPL-2.0.
