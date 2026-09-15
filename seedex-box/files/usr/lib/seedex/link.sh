@@ -15,16 +15,23 @@ _link_names() {
 _link_check_name() {
 	case "$1" in
 	"" | *[!A-Za-z0-9._-]* | -*) die "invalid link name '$1' — use letters, digits, dot, dash or underscore" ;;
+	add | remove | show | select | sync | help) die "'$1' is a link command, pick another name" ;;
 	esac
 }
 
-_link_fetch() {
-	local name="$1" out="$2" url token fp code
+_link_curl() {
+	local name="$1" path="$2" url token fp
+	shift 2
 	url=$(uci -q get "seedex-link.$name.url")
 	token=$(uci -q get "seedex-link.$name.token")
 	fp=$(uci -q get "seedex-link.$name.fingerprint")
-	code=$(curl -s -o "$out" -w '%{http_code}' --max-time 30 -k --pinnedpubkey "$fp" \
-		-H "Authorization: Bearer $token" "$url/v1/configs" 2>/dev/null) || {
+	curl -s -k --pinnedpubkey "$fp" -H "Authorization: Bearer $token" "$@" "$url$path"
+}
+
+_link_fetch() {
+	local name="$1" out="$2" url code
+	url=$(uci -q get "seedex-link.$name.url")
+	code=$(_link_curl "$name" /v1/configs -o "$out" -w '%{http_code}' --max-time 30 2>/dev/null) || {
 		echo "cannot reach $url"
 		return 1
 	}
@@ -335,6 +342,35 @@ link_select() {
 	_link_sync_one "$name" || echo "the selection is saved; the next sync will apply it"
 }
 
+link_run() {
+	local name="$1" tmp code body rc
+	shift
+	tmp=$(mktemp)
+	code=$(jq -n --args '{args: $ARGS.positional}' -- "$@" |
+		_link_curl "$name" /v1/run -o "$tmp" -w '%{http_code}' --max-time 130 \
+			-H 'Content-Type: application/json' --data-binary @- 2>/dev/null) || {
+		rm -f "$tmp"
+		die "cannot reach $(uci -q get "seedex-link.$name.url")"
+	}
+	body=$(cat "$tmp")
+	rm -f "$tmp"
+	case "$code" in
+	200) ;;
+	401) die "$name rejected the token — pair again" ;;
+	403) die "$name: $body" ;;
+	404) die "$name does not support commands — update seedex-agent" ;;
+	*) die "$name answered HTTP $code" ;;
+	esac
+	printf '%s' "$body" | jq -r '.output // empty | select(length > 0)'
+	printf '%s' "$body" | jq -r '.error // empty | select(length > 0)' >&2
+	rc=$(printf '%s' "$body" | jq -r '.code // 1')
+	if [ "$(printf '%s' "$body" | jq -r '.changed')" = true ]; then
+		echo
+		_link_sync_one "$name"
+	fi
+	return "$rc"
+}
+
 link_sync() {
 	local name="$1" n status=0
 	if [ -n "$name" ]; then
@@ -388,8 +424,12 @@ cmd_link() {
 			"remove <name>                            Unpair and drop the configs it delivered" \
 			"show <name>                              List the configs the server offers" \
 			"select <name> <config> ... | --all       Choose which of them to import" \
-			"sync [<name>]                            Pull configs now (cron does it every 30 minutes)"
+			"sync [<name>]                            Pull configs now (cron does it every 30 minutes)" \
+			"<name> [<command> ...]                   Run the server's sdx: status, vpn add, proxy add ..."
 		;;
-	*) die "unknown link command: $sub (add, remove, show, select, sync)" ;;
+	*)
+		uci -q get "seedex-link.$sub" >/dev/null 2>&1 || die "unknown link command: $sub (add, remove, show, select, sync, or a link name)"
+		link_run "$sub" "$@"
+		;;
 	esac
 }

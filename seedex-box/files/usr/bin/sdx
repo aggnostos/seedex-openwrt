@@ -317,6 +317,7 @@ cmd_help() {
 	echo "  link select <name> <config> ... | --all"
 	echo "                                Choose which of them to import"
 	echo "  link sync [<name>]            Pull configs now (cron does it every 30 minutes)"
+	echo "  link <name> [<command> ...]   Run the server's sdx: status, vpn add, proxy add ..."
 	echo "  import <path>                 Import a config file, or every config in a directory"
 	echo "  logs                          Show seedex logs (passes args to logread)"
 	echo "  version                       Show version"

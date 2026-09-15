@@ -294,6 +294,17 @@ Pull now, for one link or all. Changed configs are replaced, new ones added,
 dropped ones removed, and the services that changed are restarted. A cron job
 runs it every 30 minutes.
 
+### `sdx link <name> [<command> ...]`
+
+Run the server's own `sdx` from the router: `sdx link nl1` is the server's
+status, `sdx link nl1 vpn add phone` adds a client, `sdx link nl1 proxy add
+vless 443` a protocol, `sdx link nl1 help` lists what the server offers. The
+output and exit code come back as they are; when the command changed the
+configs, the router syncs right away, so a new client is imported by the
+time the prompt returns. The server accepts only `sdx` actions on `vpn` and
+`proxy` plus `start`/`stop`/`restart` — its own `link` and `firewall` stay
+out of reach.
+
 ### `sdx link remove <name>`
 
 Unpair and drop every config the link delivered.
