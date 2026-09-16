@@ -36,7 +36,7 @@ wget -O - https://aggnostos.github.io/seedex-openwrt/install.sh | sh
 Если вы используете [seedex-agent](https://github.com/aggnostos/seedex-agent), вставьте вывод команды `sdx link add <router>` на сервере и выберите конфигурационные файлы для импорта в открывшемся меню:
 
 ```sh
-sdx link add nl1 https://203.0.113.5:8447 <token> <fingerprint>
+sdx link add agent https://203.0.113.5:8447 <token> <fingerprint>
 ```
 
 Вы также можете импортировать нативные конфигурационные файлы AWG или sing-box:
@@ -51,8 +51,38 @@ sdx apply
 
 Запустите `sdx`:
 
-```sh
-sdx
+```
+$ sdx
+seedex v0.1.0
+
+Uplink:
+    [*] Internet             118 ms
+    [*] Overlay (anytls)     286 ms
+
+[*] Router:
+    Routing:      overlay
+    Kill switch:  on
+    Watchdog:     every 30s
+    Rules:
+    [*] ads                block    list
+    [*] tv                 direct   1 client
+
+[*] VPN:
+    Configs:
+    [ ] awg         362 ms
+
+[*] Proxy:
+    Configs:
+    [*] anytls      286 ms
+    [ ] vless
+
+[*] DNS:
+    Upstream:   encrypted
+    Resolver:   cloudflare
+    Intercept:  on
+
+Link:
+    [*] admin        https://203.0.113.5:8447         1 vpn, 2 proxy, 4 min ago
 ```
 
 Раздел **Uplink** показывает туннель, который несёт трафик. В LuCI то же самое находится в **Services > Seedex**.
@@ -64,9 +94,10 @@ sdx
 - `sdx logs` для просмотра сервисных логов.
 
 - `sdx restart` для перезапуска сервисов в правильном порядке.
+
 ## Что дальше
 
-- [Начало работы](https://docs.seedex.net/ru/getting-started) проводит через полную настройку, включая [seedex-agent](https://github.com/aggnostos/seedex-openwrt).
+- [Начало работы](https://docs.seedex.net/ru/getting-started) проводит через полную настройку, включая [seedex-agent](https://github.com/aggnostos/seedex-agent).
 - [Руководство по seedex-box](https://docs.seedex.net/ru/user-guide/seedex-box) описывает каждую команду `sdx` и приложение для LuCI.
 - [Для разработчиков](https://docs.seedex.net/ru/developer-guide/seedex-box) рассказывает о сборке, линте и структуре проекта.
 ## Участие

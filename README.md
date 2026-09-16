@@ -9,7 +9,7 @@
 
 # Seedex
 
-Seedex is a network privacy layer for an OpenWrt routers: VPN and Proxy, convenient routing, secured DNS, managed with a single command or the LuCI app.
+Seedex is a secure network privacy layer for OpenWrt routers: VPN and Proxy, convenient routing, secured DNS, managed with a single command or the LuCI app.
 
 ## Requirements
 
@@ -51,8 +51,38 @@ sdx apply
 
 Run `sdx`:
 
-```sh
-sdx
+```
+$ sdx
+seedex v0.1.0
+
+Uplink:
+    [*] Internet             118 ms
+    [*] Overlay (anytls)     286 ms
+
+[*] Router:
+    Routing:      overlay
+    Kill switch:  on
+    Watchdog:     every 30s
+    Rules:
+    [*] ads                block    list
+    [*] tv                 direct   1 client
+
+[*] VPN:
+    Configs:
+    [ ] awg         362 ms
+
+[*] Proxy:
+    Configs:
+    [*] anytls      286 ms
+    [ ] vless
+
+[*] DNS:
+    Upstream:   encrypted
+    Resolver:   cloudflare
+    Intercept:  on
+
+Link:
+    [*] admin        https://203.0.113.5:8447         1 vpn, 2 proxy, 4 min ago
 ```
 
 The **Uplink** section shows the tunnel that carries the traffic. In LuCI, the same information is under **Services > Seedex**.
@@ -70,9 +100,11 @@ If the router doesn't route traffic, check the following:
 - [Getting started](https://docs.seedex.net/getting-started) walks you through the full setup, including [seedex-agent](https://github.com/aggnostos/seedex-openwrt).
 - [seedex-box user guide](https://docs.seedex.net/user-guide/seedex-box) describes every `sdx` command and the LuCI app.
 - [Developer guide](https://docs.seedex.net/developer-guide/seedex-box) covers building, linting, and the project structure.
+
 ## Contributing
 
 Bug reports, suggestions, and pull requests are welcome.
+
 ## License
 
 GPL-2.0.
