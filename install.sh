@@ -3,12 +3,12 @@
 set -eu
 
 SEEDEX_FEED="${SEEDEX_FEED:-https://aggnostos.github.io/seedex-openwrt}"
-AWG_FEED="${AWG_FEED:-https://slava-shchipunov.github.io/awg-openwrt}"
+AWG_FEED="${AWG_FEED:-https://2grey.github.io/awg-openwrt}"
 
 KEYS_DIR=/etc/apk/keys
 REPOS_FILE=/etc/apk/repositories.d/seedex.list
 SEEDEX_KEY_NAME=seedex-feed.pem
-AWG_KEY_NAME=awg-openwrt-feed.pem
+AWG_KEY_NAME=awg-openwrt-2grey.pem
 
 LUCI=1
 while [ $# -gt 0 ]; do
@@ -71,10 +71,14 @@ install_key() {
 }
 
 log "installing signing keys"
+if [ -s "$KEYS_DIR/awg-openwrt-feed.pem" ]; then
+	rm -f "$KEYS_DIR/awg-openwrt-feed.pem"
+	echo "  dropped awg-openwrt-feed.pem (the previous amneziawg feed)"
+fi
 awg_ok=1
-install_key "$AWG_KEY_NAME" "$AWG_FEED/keys/$AWG_KEY_NAME" "" || {
+install_key "$AWG_KEY_NAME" "$AWG_FEED/keys/awg-openwrt-feed.pem" "" || {
 	awg_ok=0
-	warn "cannot fetch $AWG_FEED/keys/$AWG_KEY_NAME — skipping the amneziawg feed"
+	warn "cannot fetch $AWG_FEED/keys/awg-openwrt-feed.pem — skipping the amneziawg feed"
 }
 if [ -s "$KEYS_DIR/$SEEDEX_KEY_NAME" ] || [ -z "$PKGS" ] || [ -s "$LOCAL_KEY" ]; then
 	install_key "$SEEDEX_KEY_NAME" "$SEEDEX_FEED/keys/$SEEDEX_KEY_NAME" "$LOCAL_KEY" ||
@@ -84,9 +88,9 @@ else
 	warn "the local package will install with --allow-untrusted"
 fi
 
-if grep -q '/amneziawg' /etc/apk/repositories 2>/dev/null; then
+if grep -q '/amneziawg\|slava-shchipunov' /etc/apk/repositories 2>/dev/null; then
 	warn "removing a stale amneziawg line from /etc/apk/repositories"
-	sed -i '/\/amneziawg/d' /etc/apk/repositories
+	sed -i '/\/amneziawg\|slava-shchipunov/d' /etc/apk/repositories
 fi
 
 log "configuring feeds"
@@ -106,7 +110,7 @@ apk update || {
 log "installing amneziawg"
 if [ "$awg_ok" = 0 ]; then
 	warn "amneziawg skipped — rerun once $AWG_FEED is reachable. VPN stays down until then."
-elif apk add kmod-amneziawg amneziawg-tools; then
+elif apk add --upgrade --latest kmod-amneziawg amneziawg-tools; then
 	:
 else
 	warn "could not install amneziawg for OpenWrt $release on $target."
