@@ -222,11 +222,12 @@ echo
 log "done — seedex $(sdx version 2>/dev/null || echo '?') installed"
 cat <<EOF
 
-Nothing is started — the services are enabled but not running. Connect a
-server, then bring them up:
+Nothing is started — the services are enabled but not running. They come
+up with the first config:
 
   sdx link add <name> <url> <token> <fingerprint>
-  sdx start
+
+or by hand: sdx start
 
 On an upgrade the running services keep the previous build until you
 restart them: sdx restart

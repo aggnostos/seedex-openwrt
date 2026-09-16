@@ -253,7 +253,7 @@ _reset_sections() {
 }
 
 _svc_registered() {
-	ubus call service list "{\"name\":\"$SVC_ID\"}" 2>/dev/null | grep -q "\"$SVC_ID\""
+	seedex_service_registered "$SVC_NAME"
 }
 
 svc_start() { /etc/init.d/"$SVC_ID" start; }

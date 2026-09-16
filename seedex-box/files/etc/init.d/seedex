@@ -37,7 +37,7 @@ start() {
 		_wait_for_ifaces
 	fi
 
-	if seedex_service_enabled router && [ -x /etc/init.d/seedex-router ]; then
+	if seedex_service_enabled router && ! seedex_service_registered router; then
 		/etc/init.d/seedex-router start
 	fi
 

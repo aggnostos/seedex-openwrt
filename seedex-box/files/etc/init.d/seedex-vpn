@@ -185,6 +185,7 @@ start_service() {
 	_setup_routing "$ifaces"
 
 	log_info "started ($count interface(s): $ifaces)"
+	seedex_start_router
 }
 
 stop_service() {

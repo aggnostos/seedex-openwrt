@@ -29,7 +29,7 @@ On the router, run the installer as root:
 wget -O - https://aggnostos.github.io/seedex-openwrt/install.sh | sh
 ```
 
-The installer adds the Seedex package feed and installs `seedex-box` with the `sdx` command and `luci-app-seedex` for LuCI. Nothing is started until you say so. To skip LuCI, run the installer as `| sh -s -- --no-luci`.
+The installer adds the Seedex package feed and installs `seedex-box` with the `sdx` command and `luci-app-seedex` for LuCI. The services start with the first config. To skip LuCI, run the installer as `| sh -s -- --no-luci`.
 
 ### 2. Connect the server
 
@@ -47,13 +47,7 @@ sdx import sing-box.json
 sdx apply
 ```
 
-### 3. Start the services
-
-```sh
-sdx start
-```
-
-### 4. Check the status
+### 3. Check the status
 
 Run `sdx`:
 
@@ -93,7 +87,7 @@ Link:
 
 The **Uplink** section shows the tunnel that carries the traffic. In LuCI, the same information is under **Services > Seedex**.
 
-### 5. Troubleshoot
+### 4. Troubleshoot
 
 If the router doesn't route traffic, check the following:
 

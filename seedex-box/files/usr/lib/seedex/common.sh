@@ -59,6 +59,20 @@ seedex_service_enabled() {
 	[ ! -f "$SEEDEX_DISABLED_DIR/$1" ]
 }
 
+seedex_service_registered() {
+	ubus call service list "{\"name\":\"seedex-$1\"}" 2>/dev/null | grep -q "\"seedex-$1\""
+}
+
+seedex_start_router() {
+	local svc
+	for svc in dns router; do
+		seedex_service_enabled "$svc" || continue
+		seedex_service_registered "$svc" && continue
+		log_info "starting seedex-$svc for the tunnels"
+		/etc/init.d/seedex-$svc start
+	done
+}
+
 seedex_config_stamp() {
 	mkdir -p "$SEEDEX_RUNDIR/$1"
 	uci -q show "seedex-$1" 2>/dev/null | md5sum >"$SEEDEX_RUNDIR/$1/config.md5"
