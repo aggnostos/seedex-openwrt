@@ -29,14 +29,15 @@ On the router, run the installer as root:
 wget -O - https://aggnostos.github.io/seedex-openwrt/install.sh | sh
 ```
 
-The installer adds the Seedex package feed and installs `seedex-box` with the `sdx` command and `luci-app-seedex` for LuCI. The services start with the first config. To skip LuCI, run the installer as `| sh -s -- --no-luci`.
+The installer adds the Seedex package feed and installs `seedex-box` with the `sdx` command and `luci-app-seedex` for LuCI. Nothing is started until you apply the first config. To skip LuCI, run the installer as `| sh -s -- --no-luci`.
 
 ### 2. Connect the server
 
-If you use [seedex-agent](https://github.com/aggnostos/seedex-agent), paste the output of the `sdx link add <router>` command, and then pick the configs to import in the opened menu:
+If you use [seedex-agent](https://github.com/aggnostos/seedex-agent), paste the output of the `sdx link add <router>` command, pick the configs to import in the opened menu, and then apply them:
 
 ```sh
 sdx link add agent https://203.0.113.5:8447 <token> <fingerprint>
+sdx apply
 ```
 
 You can also import native AWG or sing-box configuration files:
@@ -46,6 +47,8 @@ sdx import awg.conf
 sdx import sing-box.json
 sdx apply
 ```
+
+`sdx apply` saves the configs and starts the services.
 
 ### 3. Check the status
 

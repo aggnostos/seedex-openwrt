@@ -29,14 +29,15 @@ Seedex — защитный слой сети для роутеров на OpenW
 wget -O - https://aggnostos.github.io/seedex-openwrt/install.sh | sh
 ```
 
-Установщик подключает фид пакетов Seedex и ставит `seedex-box` с командой `sdx` и `luci-app-seedex` для LuCI. Сервисы запускаются с первым конфигом. Чтобы обойтись без LuCI, запустите установщик как `| sh -s -- --no-luci`.
+Установщик подключает фид пакетов Seedex и ставит `seedex-box` с командой `sdx` и `luci-app-seedex` для LuCI. Ничего не запускается, пока вы не примените первый конфиг. Чтобы обойтись без LuCI, запустите установщик как `| sh -s -- --no-luci`.
 
 ### 2. Подключите сервер
 
-Если вы используете [seedex-agent](https://github.com/aggnostos/seedex-agent), вставьте вывод команды `sdx link add <router>` на сервере и выберите конфигурационные файлы для импорта в открывшемся меню:
+Если вы используете [seedex-agent](https://github.com/aggnostos/seedex-agent), вставьте вывод команды `sdx link add <router>` на сервере, выберите конфигурационные файлы для импорта в открывшемся меню и примените их:
 
 ```sh
 sdx link add agent https://203.0.113.5:8447 <token> <fingerprint>
+sdx apply
 ```
 
 Вы также можете импортировать нативные конфигурационные файлы AWG или sing-box:
@@ -46,6 +47,8 @@ sdx import awg.conf
 sdx import sing-box.json
 sdx apply
 ```
+
+`sdx apply` сохраняет конфиги и запускает сервисы.
 
 ### 3. Проверьте статус
 

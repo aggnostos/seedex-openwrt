@@ -314,7 +314,9 @@ _link_sync_one() {
 		esac
 	done
 
-	if [ "$changed" = 1 ]; then
+	if [ "$changed" = 1 ] && [ "${LINK_NO_APPLY:-0}" = 1 ]; then
+		echo "$name: synced; the changes are pending until 'sdx apply'"
+	elif [ "$changed" = 1 ]; then
 		for svc in vpn proxy; do
 			[ -n "$(uci changes "seedex-$svc" 2>/dev/null)" ] || continue
 			_svc "$svc" apply >/dev/null
@@ -492,6 +494,7 @@ link_select() {
 		fi
 	fi
 	uci commit seedex-link
+	LINK_NO_APPLY=1
 	_link_sync_one "$name" || echo "the selection is saved; the next sync will apply it"
 }
 
