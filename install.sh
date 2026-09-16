@@ -222,10 +222,14 @@ echo
 log "done — seedex $(sdx version 2>/dev/null || echo '?') installed"
 cat <<EOF
 
-On a fresh install the services are started now. On an upgrade the running
-services keep the previous build until you restart them:
+Nothing is started — the services are enabled but not running. Connect a
+server, then bring them up:
 
-  /etc/init.d/seedex restart
+  sdx link add <name> <url> <token> <fingerprint>
+  sdx start
+
+On an upgrade the running services keep the previous build until you
+restart them: sdx restart
 
 In LuCI the box lives under Services → Seedex:
   http://${UI_HOST}/cgi-bin/luci/admin/services/seedex

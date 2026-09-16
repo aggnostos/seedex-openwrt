@@ -19,11 +19,5 @@ grep -q 'sdx link sync' /etc/crontabs/root 2>/dev/null || {
 }
 
 /etc/init.d/seedex enable 2>/dev/null || true
-/etc/init.d/seedex-dns start 2>/dev/null || true
-
-if uci -q show seedex-vpn 2>/dev/null | grep -q '=config$' ||
-	uci -q show seedex-proxy 2>/dev/null | grep -q '=config$'; then
-	/etc/init.d/seedex start 2>/dev/null || true
-fi
 
 exit 0
