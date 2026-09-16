@@ -5,10 +5,12 @@ set -eu
 SEEDEX_FEED="${SEEDEX_FEED:-https://aggnostos.github.io/seedex-openwrt}"
 AWG_FEED="${AWG_FEED:-https://2grey.github.io/awg-openwrt}"
 
-KEYS_DIR=/etc/apk/keys
-REPOS_FILE=/etc/apk/repositories.d/seedex.list
-SEEDEX_KEY_NAME=seedex-feed.pem
-AWG_KEY_NAME=awg-openwrt-2grey.pem
+APK_KEYS_DIR=/etc/apk/keys
+APK_REPOS_FILE=/etc/apk/repositories.d/seedex.list
+OPKG_FEEDS_FILE=/etc/opkg/customfeeds.conf
+SEEDEX_APK_KEY=seedex-feed.pem
+SEEDEX_OPKG_KEY=seedex-feed.pub
+AWG_APK_KEY=awg-openwrt-2grey.pem
 
 LUCI=1
 while [ $# -gt 0 ]; do
@@ -30,7 +32,13 @@ die() {
 }
 
 [ "$(id -u)" = "0" ] || die "run as root"
-command -v apk >/dev/null 2>&1 || die "apk not found — seedex needs OpenWrt 25.x or newer"
+if command -v apk >/dev/null 2>&1; then
+	PM=apk
+elif command -v opkg >/dev/null 2>&1; then
+	PM=opkg
+else
+	die "neither apk nor opkg found — seedex needs OpenWrt 24.10 or newer"
+fi
 
 release=$(. /etc/openwrt_release 2>/dev/null && echo "${DISTRIB_RELEASE:-}")
 target=$(. /etc/openwrt_release 2>/dev/null && echo "${DISTRIB_TARGET:-}")
@@ -38,9 +46,24 @@ if [ -z "$release" ] || [ -z "$target" ]; then
 	die "cannot read /etc/openwrt_release"
 fi
 
+case "$PM" in
+apk)
+	SEEDEX_KEY_NAME="$SEEDEX_APK_KEY"
+	PM_INSTALL="apk add"
+	;;
+opkg)
+	SEEDEX_KEY_NAME="$SEEDEX_OPKG_KEY"
+	PM_INSTALL="opkg install"
+	;;
+esac
+
 if [ $# -gt 0 ]; then
 	for f in "$@"; do
 		[ -f "$f" ] || die "no such package file: $f"
+		case "$PM:$f" in
+		apk:*.apk | opkg:*.ipk) ;;
+		*) die "$f is not a package for $PM" ;;
+		esac
 		f="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
 		PKGS="$PKGS $f"
 		LOCAL_KEY="${f%/*}/../keys/$SEEDEX_KEY_NAME"
@@ -54,82 +77,135 @@ fetch() {
 	}
 }
 
-install_key() {
+apk_key() {
 	local name="$1" url="$2" local_copy="$3"
-	[ -s "$KEYS_DIR/$name" ] && {
+	[ -s "$APK_KEYS_DIR/$name" ] && {
 		echo "  $name already trusted"
 		return 0
 	}
-	mkdir -p "$KEYS_DIR"
+	mkdir -p "$APK_KEYS_DIR"
 	if [ -n "$local_copy" ] && [ -s "$local_copy" ]; then
-		cp "$local_copy" "$KEYS_DIR/$name"
+		cp "$local_copy" "$APK_KEYS_DIR/$name"
 	else
-		fetch "$url" "$KEYS_DIR/$name" || return 1
+		fetch "$url" "$APK_KEYS_DIR/$name" || return 1
 	fi
-	chmod 644 "$KEYS_DIR/$name"
+	chmod 644 "$APK_KEYS_DIR/$name"
+	echo "  trusted $name"
+}
+
+opkg_key() {
+	local name="$1" url="$2" local_copy="$3" tmp
+	tmp="/tmp/$name.$$"
+	if [ -n "$local_copy" ] && [ -s "$local_copy" ]; then
+		cp "$local_copy" "$tmp"
+	else
+		fetch "$url" "$tmp" || return 1
+	fi
+	opkg-key add "$tmp" >/dev/null
+	rm -f "$tmp"
 	echo "  trusted $name"
 }
 
 log "installing signing keys"
-if [ -s "$KEYS_DIR/awg-openwrt-feed.pem" ]; then
-	rm -f "$KEYS_DIR/awg-openwrt-feed.pem"
-	echo "  dropped awg-openwrt-feed.pem (the previous amneziawg feed)"
-fi
 awg_ok=1
-install_key "$AWG_KEY_NAME" "$AWG_FEED/keys/awg-openwrt-feed.pem" "" || {
-	awg_ok=0
-	warn "cannot fetch $AWG_FEED/keys/awg-openwrt-feed.pem — skipping the amneziawg feed"
-}
-if [ -s "$KEYS_DIR/$SEEDEX_KEY_NAME" ] || [ -z "$PKGS" ] || [ -s "$LOCAL_KEY" ]; then
-	install_key "$SEEDEX_KEY_NAME" "$SEEDEX_FEED/keys/$SEEDEX_KEY_NAME" "$LOCAL_KEY" ||
-		die "cannot fetch $SEEDEX_FEED/keys/$SEEDEX_KEY_NAME"
-else
+seedex_key_ok=1
+case "$PM" in
+apk)
+	if [ -s "$APK_KEYS_DIR/awg-openwrt-feed.pem" ]; then
+		rm -f "$APK_KEYS_DIR/awg-openwrt-feed.pem"
+		echo "  dropped awg-openwrt-feed.pem (the previous amneziawg feed)"
+	fi
+	apk_key "$AWG_APK_KEY" "$AWG_FEED/keys/awg-openwrt-feed.pem" "" || awg_ok=0
+	if [ -s "$APK_KEYS_DIR/$SEEDEX_KEY_NAME" ] || [ -z "$PKGS" ] || [ -s "$LOCAL_KEY" ]; then
+		apk_key "$SEEDEX_KEY_NAME" "$SEEDEX_FEED/keys/$SEEDEX_KEY_NAME" "$LOCAL_KEY" ||
+			die "cannot fetch $SEEDEX_FEED/keys/$SEEDEX_KEY_NAME"
+	else
+		seedex_key_ok=0
+	fi
+	;;
+opkg)
+	opkg_key awg-openwrt-feed.pub "$AWG_FEED/keys/awg-openwrt-feed.pub" "" || awg_ok=0
+	opkg_key "$SEEDEX_KEY_NAME" "$SEEDEX_FEED/keys/$SEEDEX_KEY_NAME" "$LOCAL_KEY" || {
+		[ -n "$PKGS" ] || die "cannot fetch $SEEDEX_FEED/keys/$SEEDEX_KEY_NAME"
+		seedex_key_ok=0
+	}
+	;;
+esac
+[ "$awg_ok" = 1 ] || warn "cannot fetch the amneziawg feed key — skipping the amneziawg feed"
+[ "$seedex_key_ok" = 1 ] || {
 	warn "$SEEDEX_KEY_NAME is neither trusted on this box nor in keys/ beside the package directory;"
-	warn "the local package will install with --allow-untrusted"
-fi
-
-if grep -q '/amneziawg\|slava-shchipunov' /etc/apk/repositories 2>/dev/null; then
-	warn "removing a stale amneziawg line from /etc/apk/repositories"
-	sed -i '/\/amneziawg\|slava-shchipunov/d' /etc/apk/repositories
-fi
+	warn "the local package will install without signature checks"
+}
 
 log "configuring feeds"
-mkdir -p "${REPOS_FILE%/*}"
-{
-	[ "$awg_ok" = 0 ] || echo "$AWG_FEED/$release/$target/packages.adb"
-	echo "$SEEDEX_FEED/noarch/packages.adb"
-} >"$REPOS_FILE"
-[ -s "$REPOS_FILE" ] && sed 's/^/  /' "$REPOS_FILE" || echo "  (none beyond the stock OpenWrt feeds)"
+case "$PM" in
+apk)
+	if grep -q '/amneziawg\|slava-shchipunov' /etc/apk/repositories 2>/dev/null; then
+		warn "removing a stale amneziawg line from /etc/apk/repositories"
+		sed -i '/\/amneziawg\|slava-shchipunov/d' /etc/apk/repositories
+	fi
+	mkdir -p "${APK_REPOS_FILE%/*}"
+	{
+		[ "$awg_ok" = 0 ] || echo "$AWG_FEED/$release/$target/packages.adb"
+		echo "$SEEDEX_FEED/noarch/packages.adb"
+	} >"$APK_REPOS_FILE"
+	sed 's/^/  /' "$APK_REPOS_FILE"
+	;;
+opkg)
+	mkdir -p "${OPKG_FEEDS_FILE%/*}"
+	[ -f "$OPKG_FEEDS_FILE" ] || : >"$OPKG_FEEDS_FILE"
+	sed -i '/^src\/gz \(seedex\|awg\) /d' "$OPKG_FEEDS_FILE"
+	{
+		[ "$awg_ok" = 0 ] || echo "src/gz awg $AWG_FEED/$release/$target"
+		echo "src/gz seedex $SEEDEX_FEED/noarch"
+	} >>"$OPKG_FEEDS_FILE"
+	grep '^src/gz \(seedex\|awg\) ' "$OPKG_FEEDS_FILE" | sed 's/^/  /'
+	;;
+esac
 
 log "updating package lists"
-apk update || {
-	[ -n "$PKGS" ] || die "apk update failed — check the feed URLs above and outbound access"
-	warn "apk update failed — installing the local packages anyway, amneziawg may be skipped"
+$PM update || {
+	[ -n "$PKGS" ] || die "$PM update failed — check the feed URLs above and outbound access"
+	warn "$PM update failed — installing the local packages anyway, amneziawg may be skipped"
 }
 
 log "installing amneziawg"
 if [ "$awg_ok" = 0 ]; then
 	warn "amneziawg skipped — rerun once $AWG_FEED is reachable. VPN stays down until then."
-elif apk add --upgrade --latest kmod-amneziawg amneziawg-tools; then
-	:
 else
-	warn "could not install amneziawg for OpenWrt $release on $target."
-	warn "The awg-openwrt feed may not have this release yet — see"
-	warn "$AWG_FEED/ and rerun once it does. VPN stays down until then."
+	case "$PM" in
+	apk) awg_cmd="apk add --upgrade --latest kmod-amneziawg amneziawg-tools" ;;
+	opkg) awg_cmd="opkg install kmod-amneziawg amneziawg-tools" ;;
+	esac
+	$awg_cmd || {
+		warn "could not install amneziawg for OpenWrt $release on $target."
+		warn "The awg-openwrt feed may not have this release yet — see"
+		warn "$AWG_FEED/ and rerun once it does. VPN stays down until then."
+	}
+fi
+
+if [ "$PM" = opkg ] && opkg status dnsmasq 2>/dev/null | grep -q '^Status:.*installed' &&
+	! opkg status dnsmasq-full 2>/dev/null | grep -q '^Status:.*installed'; then
+	log "replacing dnsmasq with dnsmasq-full"
+	rm -f /tmp/dnsmasq-full_*.ipk
+	(cd /tmp && opkg download dnsmasq-full) || die "cannot download dnsmasq-full"
+	opkg remove dnsmasq
+	opkg install /tmp/dnsmasq-full_*.ipk || die "cannot install dnsmasq-full"
+	rm -f /tmp/dnsmasq-full_*.ipk
 fi
 
 log "installing seedex-box"
 if [ -n "$PKGS" ]; then
 	# shellcheck disable=SC2086
-	if [ -s "$KEYS_DIR/$SEEDEX_KEY_NAME" ]; then
-		apk add $PKGS
-	else
-		apk add --allow-untrusted $PKGS
-	fi
+	case "$PM:$seedex_key_ok" in
+	apk:1) apk add $PKGS ;;
+	apk:0) apk add --allow-untrusted $PKGS ;;
+	opkg:*) opkg install $PKGS ;;
+	esac
 elif [ "$LUCI" = 1 ]; then
-	apk add seedex-box luci-app-seedex
+	$PM_INSTALL seedex-box luci-app-seedex
 else
-	apk add seedex-box
+	$PM_INSTALL seedex-box
 fi
 
 lan_ip() {

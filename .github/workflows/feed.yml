@@ -23,15 +23,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install the signing key
+      - name: Install the signing keys
         env:
           APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
+          OPKG_SIGN_KEY: ${{ secrets.OPKG_SIGN_KEY }}
+          OPKG_SIGN_PUB: ${{ secrets.OPKG_SIGN_PUB }}
         run: |
           [ -n "$APK_SIGN_KEY" ] || { echo "APK_SIGN_KEY secret is not set" >&2; exit 1; }
+          [ -n "$OPKG_SIGN_KEY" ] && [ -n "$OPKG_SIGN_PUB" ] || { echo "OPKG_SIGN_KEY / OPKG_SIGN_PUB secrets are not set" >&2; exit 1; }
           mkdir -p ~/.seedex
           printf '%s\n' "$APK_SIGN_KEY" | tr -d '\r' > ~/.seedex/apk-sign.key
-          chmod 600 ~/.seedex/apk-sign.key
-          echo "key: $(head -1 ~/.seedex/apk-sign.key), $(wc -l < ~/.seedex/apk-sign.key) lines"
+          printf '%s\n' "$OPKG_SIGN_KEY" | tr -d '\r' > ~/.seedex/opkg-sign.key
+          printf '%s\n' "$OPKG_SIGN_PUB" | tr -d '\r' > ~/.seedex/opkg-sign.pub
+          chmod 600 ~/.seedex/apk-sign.key ~/.seedex/opkg-sign.key
           openssl pkey -in ~/.seedex/apk-sign.key -noout
 
       - name: Build the packages
@@ -50,7 +54,7 @@ jobs:
       - name: Assemble the release
         run: |
           mkdir -p release
-          cp build/noarch/*.apk build/keys/seedex-feed.pem install.sh release/
+          cp build/noarch/*.apk build/noarch/*.ipk build/keys/seedex-feed.pem build/keys/seedex-feed.pub install.sh release/
           cd release && sha256sum * > checksums.txt
 
       - uses: actions/upload-artifact@v4

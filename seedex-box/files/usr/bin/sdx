@@ -92,7 +92,11 @@ _fan_out() {
 
 cmd_version() {
 	local version
-	version=$(apk list -I seedex-box 2>/dev/null | sed -n 's/^seedex-box-\([^ ]*\).*/\1/p')
+	if command -v apk >/dev/null 2>&1; then
+		version=$(apk list -I seedex-box 2>/dev/null | sed -n 's/^seedex-box-\([^ ]*\).*/\1/p')
+	else
+		version=$(opkg status seedex-box 2>/dev/null | sed -n 's/^Version: //p')
+	fi
 	printf '%s\n' "${version:-unknown}"
 }
 

@@ -13,11 +13,11 @@ Seedex is a secure network privacy layer for OpenWrt routers: VPN and Proxy, con
 
 ## Requirements
 
-- A router running OpenWrt 25.x or later with outbound internet access.
+- A router running OpenWrt 24.10.2 or later with outbound internet access.
 - A server running [seedex-agent](https://github.com/aggnostos/seedex-agent), AmneziaWG or sing-box.
 
 > [!NOTE]
-> The packages are `noarch`. Every OpenWrt target with `apk` works.
+> The packages are `noarch`. Every OpenWrt target works, with `apk` on 25.x and `opkg` on 24.10.
 
 ## Installation
 

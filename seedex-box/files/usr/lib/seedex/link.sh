@@ -247,7 +247,7 @@ _link_pick_restore() {
 
 _link_pick_or_die() {
 	[ -t 0 ] && [ -t 1 ] || die "no terminal — pass the configs by name: sdx link select $1 <config> ... | --all"
-	command -v stty >/dev/null 2>&1 || die "stty not found — install it with: apk add coreutils-stty"
+	command -v stty >/dev/null 2>&1 || die "stty not found — install the coreutils-stty package"
 }
 
 _link_unpack() {
