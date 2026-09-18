@@ -127,12 +127,34 @@ _write_dnsmasq_conf() {
 	mv "$tmp" "$DNSMASQ_CONF"
 }
 
+_doh_host_ips() {
+	local host="${DOH_URL#*://}" ns found
+	host="${host%%/*}"
+	for ns in $RESOLVER_IPS; do
+		case "$ns" in
+		*:*) continue ;;
+		esac
+		found=$(nslookup "$host" "$ns" 2>/dev/null |
+			awk '/^Name:/,0 { if (/^Address:/) print $2 }' |
+			grep -E "$SEEDEX_IPV4_RE|$SEEDEX_IPV6_RE")
+		[ -z "$found" ] || {
+			printf '%s\n' "$found"
+			return 0
+		}
+	done
+	log_warn "cannot resolve $host — the encrypted upstream may be unreachable until a tunnel is up"
+}
+
 _write_upstream_ips() {
 	mkdir -p "$DNS_RUNDIR"
 	case "$UPSTREAM" in
 	provider) awk '$1 == "nameserver" { print $2 }' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null ;;
-	*) printf '%s' "$RESOLVER_IPS" | tr ' ' '\n' ;;
-	esac >"$DNS_RUNDIR/upstream.ips"
+	encrypted)
+		printf '%s\n' "$RESOLVER_IPS" | tr ' ' '\n'
+		_doh_host_ips
+		;;
+	*) printf '%s\n' "$RESOLVER_IPS" | tr ' ' '\n' ;;
+	esac | sed '/^$/d' | sort -u >"$DNS_RUNDIR/upstream.ips"
 }
 
 _setup_intercept() {
