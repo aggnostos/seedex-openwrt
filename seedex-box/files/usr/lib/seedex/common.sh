@@ -112,6 +112,8 @@ seedex_config_kind() {
 
 	if grep -qi '^[[:space:]]*\[Interface\]' "$file"; then
 		echo awg
+	elif head -c 200 "$file" | grep -qE '^[[:space:]]*[a-z0-9]+://'; then
+		echo links
 	elif head -c 200 "$file" | grep -q '^[[:space:]]*\['; then
 		echo rules
 	elif head -c 200 "$file" | grep -q '^[[:space:]]*{'; then

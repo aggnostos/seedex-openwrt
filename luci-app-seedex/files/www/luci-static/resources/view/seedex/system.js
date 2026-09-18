@@ -48,7 +48,7 @@ return view.extend({
 						picker.value = '';
 					}, api.fail);
 				}, self)
-			]), _('An AmneziaWG .conf, a sing-box .json or a router rules .json; restart the service to apply it, commit to keep it')),
+			]), _('An AmneziaWG .conf, a sing-box .json, a router rules .json, or a text file of proxy links; apply to save and restart')),
 			api.field(_('Reset'), E('div', {}, [
 				scope, ' ',
 				api.button(_('Reset'), 'cbi-button-negative', function() {

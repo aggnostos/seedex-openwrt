@@ -4,8 +4,8 @@
 return configs.create({
 	svc: 'proxy',
 	ext: '.json',
-	nameHint: _('Becomes the config name; the .json extension is added when missing'),
-	placeholder: '{\n  "outbounds": [\n    { "type": "vless", "tag": "...", "server": "...", "server_port": 443 }\n  ]\n}',
+	nameHint: _('Becomes the config name; the .json extension is added when missing. A share link brings its own name'),
+	placeholder: 'vless://...   or   {\n  "outbounds": [\n    { "type": "vless", "tag": "...", "server": "...", "server_port": 443 }\n  ]\n}',
 	entrySettings: [],
 	settings: [
 		{ key: 'log_level', label: _('Log level'),

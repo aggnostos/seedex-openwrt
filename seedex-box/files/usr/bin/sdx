@@ -222,11 +222,60 @@ cmd_logs() {
 	logread -e seedex "$@"
 }
 
+_import_link() {
+	local link="$1" tmp name reason
+	# shellcheck source=files/usr/lib/seedex/uri.sh
+	. /usr/lib/seedex/uri.sh
+	seedex_is_uri "$link" || {
+		warn "$(printf '%s' "$link" | cut -c1-40): not a supported link (vless, trojan, ss, vmess, hysteria2, tuic, anytls)"
+		return 1
+	}
+	tmp=$(mktemp -d)
+	if ! seedex_uri_outbound "$link" >"$tmp/out.json" 2>"$tmp/err"; then
+		warn "$(printf '%s' "$link" | cut -c1-40): $(cat "$tmp/err")"
+		case "$link" in
+		*\&*) ;;
+		*\?*) warn "if the link had more parameters, quote it: sdx import 'vless://...'" ;;
+		esac
+		rm -rf "$tmp"
+		return 1
+	fi
+	name=$(seedex_uri_name)
+	mv "$tmp/out.json" "$tmp/$name.json"
+	reason=$(seedex_config_validate "$tmp/$name.json" singbox) || {
+		warn "$name: $reason"
+		rm -rf "$tmp"
+		return 1
+	}
+	_svc proxy --import "$tmp/$name.json"
+	local rc=$?
+	rm -rf "$tmp"
+	return "$rc"
+}
+
+_import_links_file() {
+	local file="$1" line ok=0 failed=0
+	while IFS= read -r line || [ -n "$line" ]; do
+		line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+		case "$line" in
+		"" | \#*) continue ;;
+		esac
+		if _import_link "$line"; then
+			ok=$((ok + 1))
+		else
+			failed=$((failed + 1))
+		fi
+	done <"$file"
+	[ "$failed" -eq 0 ] || [ "$ok" -gt 0 ] || return 1
+	[ "$failed" -eq 0 ] || warn "$(basename "$file"): $failed link(s) skipped"
+}
+
 _import_one() {
 	local file="$1" kind reason
 
 	kind=$(seedex_config_kind "$file")
 	case "$kind" in
+	links) _import_links_file "$file" ;;
 	awg | singbox | rules)
 		reason=$(seedex_config_validate "$file" "$kind") || {
 			warn "$(basename "$file"): $reason"
@@ -240,7 +289,7 @@ _import_one() {
 		;;
 	*)
 		warn "$(basename "$file"): unrecognised — expected an AmneziaWG .conf,
-a sing-box .json, or a router rules .json"
+a sing-box .json, a router rules .json, or a file of proxy links"
 		return 1
 		;;
 	esac
@@ -248,7 +297,14 @@ a sing-box .json, or a router rules .json"
 
 cmd_import() {
 	local path="$1"
-	[ -n "$path" ] || usage "sdx import <file|directory>"
+	[ -n "$path" ] || usage "sdx import <file|directory|link>"
+
+	case "$path" in
+	*://*)
+		_import_link "$path" || exit 1
+		return
+		;;
+	esac
 
 	if [ -f "$path" ]; then
 		_import_one "$path" || exit 1
@@ -322,7 +378,7 @@ cmd_help() {
 	echo "                                Choose which of them to import (a menu without names)"
 	echo "  link sync [<name>]            Pull configs now (cron does it every 30 minutes)"
 	echo "  link <name> [<command> ...]   Run the server's sdx: status, vpn add, proxy add ..."
-	echo "  import <path>                 Import a config file, or every config in a directory"
+	echo "  import <path|link>            Import a config file, every config in a directory, or a proxy link"
 	echo "  logs                          Show seedex logs (passes args to logread)"
 	echo "  version                       Show version"
 	echo "  help                          This text"
