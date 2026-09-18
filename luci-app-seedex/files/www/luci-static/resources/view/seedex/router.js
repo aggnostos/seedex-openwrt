@@ -138,12 +138,13 @@ return view.extend({
 				args.push(oldName);
 				if (n !== oldName)
 					args.push('name=' + n);
-				args.push('type=' + type.value, 'clear-client_macs', 'clear-client_ips', 'clear-domains', 'clear-ips');
+				args.push('type=' + type.value);
 			}
-			splitList(macs.value).forEach(function(m) { args.push('client_mac=' + m); });
-			splitList(clientIps.value).forEach(function(m) { args.push('client_ip=' + m); });
-			splitList(domains.value).forEach(function(d) { args.push('domain=' + d); });
-			splitList(ips.value).forEach(function(i) { args.push('ip=' + i); });
+			[ [ macs, 'client_mac' ], [ clientIps, 'client_ip' ], [ domains, 'domain' ], [ ips, 'ip' ] ].forEach(function(f) {
+				var list = splitList(f[0].value);
+				if (list.length || !isNew)
+					args.push(f[1] + '=' + list.join(','));
+			});
 			[ [ listUrl, 'list_url', 'del-url' ],
 			  [ listPath, 'list_path', 'del-path' ],
 			  [ listRefresh, 'list_refresh', 'del-refresh' ] ].forEach(function(f) {

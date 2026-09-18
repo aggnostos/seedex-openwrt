@@ -51,6 +51,38 @@ _rule_kind_allows() {
 		die "a rule matches either clients (client_mac=, client_ip=) or destinations (domain=, ip=, list_*), not both"
 }
 
+_rule_list() {
+	local path="$1" key="$2" op="$3" values="$4" v label
+	case "$key" in
+	client_mac | client_ip)
+		[ "$op" = del ] || {
+			_rule_kind_allows "$path" clients
+			[ "$(uci -q get "${path}.type")" != block ] || die "block rules match destinations, not clients"
+		}
+		;;
+	*) [ "$op" = del ] || _rule_kind_allows "$path" destinations ;;
+	esac
+	[ "$op" != set ] || uci -q delete "${path}.${key}"
+	for v in $(printf '%s' "$values" | tr ',' ' '); do
+		case "$key" in
+		client_mac)
+			_check_mac "$v"
+			v=$(echo "$v" | tr 'A-F' 'a-f')
+			;;
+		client_ip) _check_client_ip "$v" ;;
+		esac
+		if [ "$op" = del ]; then
+			uci del_list "${path}.${key}=${v}"
+			echo "  - $key '$v'"
+		else
+			uci add_list "${path}.${key}=${v}"
+			echo "  + $key '$v'"
+		fi
+	done
+	[ "$op" != set ] || [ -n "$values" ] || echo "  - all ${key}s"
+	changes=$((changes + 1))
+}
+
 _router_entry() {
 	local subcmd="$1"
 	shift
@@ -142,20 +174,24 @@ _router_entry() {
 		shift
 
 		local type="" list_url="" list_path="" list_refresh=""
-		local add_domains="" add_ips="" add_macs="" add_clients=""
+		local add_domains="" add_ips="" add_macs="" add_clients="" v
 
 		for arg in "$@"; do
 			case "$arg" in
 			type=*) type="${arg#*=}" ;;
-			domain=*) add_domains="${add_domains} ${arg#*=}" ;;
-			ip=*) add_ips="${add_ips} ${arg#*=}" ;;
+			domain=*) add_domains="${add_domains} $(printf '%s' "${arg#*=}" | tr ',' ' ')" ;;
+			ip=*) add_ips="${add_ips} $(printf '%s' "${arg#*=}" | tr ',' ' ')" ;;
 			client_mac=*)
-				_check_mac "${arg#*=}"
-				add_macs="${add_macs} $(echo "${arg#*=}" | tr 'A-F' 'a-f')"
+				for v in $(printf '%s' "${arg#*=}" | tr ',' ' '); do
+					_check_mac "$v"
+					add_macs="${add_macs} $(echo "$v" | tr 'A-F' 'a-f')"
+				done
 				;;
 			client_ip=*)
-				_check_client_ip "${arg#*=}"
-				add_clients="${add_clients} ${arg#*=}"
+				for v in $(printf '%s' "${arg#*=}" | tr ',' ' '); do
+					_check_client_ip "$v"
+					add_clients="${add_clients} $v"
+				done
 				;;
 			list_url=*) list_url="${arg#*=}" ;;
 			list_path=*) list_path="${arg#*=}" ;;
@@ -222,63 +258,16 @@ use 'sdx router update' to change it, or pick another name"
 		local changes=0
 		for arg in "$@"; do
 			case "$arg" in
-			client_mac=*)
-				_check_mac "${arg#*=}"
-				_rule_kind_allows "$path" clients
-				[ "$(uci -q get "${path}.type")" != block ] || die "block rules match destinations, not clients"
-				uci add_list "${path}.client_mac=$(echo "${arg#*=}" | tr 'A-F' 'a-f')"
-				echo "  + client_mac '${arg#*=}'"
-				changes=$((changes + 1))
+			domain=* | ip=* | client_mac=* | client_ip=*)
+				_rule_list "$path" "${arg%%=*}" set "${arg#*=}"
 				;;
-			del-client_mac=*)
-				uci del_list "${path}.client_mac=$(echo "${arg#*=}" | tr 'A-F' 'a-f')"
-				echo "  - client_mac '${arg#*=}'"
-				changes=$((changes + 1))
+			add-domain=* | add-ip=* | add-client_mac=* | add-client_ip=*)
+				arg="${arg#add-}"
+				_rule_list "$path" "${arg%%=*}" add "${arg#*=}"
 				;;
-			clear-client_macs)
-				uci delete "${path}.client_mac" 2>/dev/null
-				echo "  - all client_macs"
-				changes=$((changes + 1))
-				;;
-			client_ip=*)
-				_check_client_ip "${arg#*=}"
-				_rule_kind_allows "$path" clients
-				[ "$(uci -q get "${path}.type")" != block ] || die "block rules match destinations, not clients"
-				uci add_list "${path}.client_ip=${arg#*=}"
-				echo "  + client_ip '${arg#*=}'"
-				changes=$((changes + 1))
-				;;
-			del-client_ip=*)
-				uci del_list "${path}.client_ip=${arg#*=}"
-				echo "  - client_ip '${arg#*=}'"
-				changes=$((changes + 1))
-				;;
-			clear-client_ips)
-				uci delete "${path}.client_ip" 2>/dev/null
-				echo "  - all client_ips"
-				changes=$((changes + 1))
-				;;
-			add-domain=*)
-				_rule_kind_allows "$path" destinations
-				uci add_list "${path}.domain=${arg#*=}"
-				echo "  + domain '${arg#*=}'"
-				changes=$((changes + 1))
-				;;
-			del-domain=*)
-				uci del_list "${path}.domain=${arg#*=}"
-				echo "  - domain '${arg#*=}'"
-				changes=$((changes + 1))
-				;;
-			add-ip=*)
-				_rule_kind_allows "$path" destinations
-				uci add_list "${path}.ip=${arg#*=}"
-				echo "  + ip '${arg#*=}'"
-				changes=$((changes + 1))
-				;;
-			del-ip=*)
-				uci del_list "${path}.ip=${arg#*=}"
-				echo "  - ip '${arg#*=}'"
-				changes=$((changes + 1))
+			del-domain=* | del-ip=* | del-client_mac=* | del-client_ip=*)
+				arg="${arg#del-}"
+				_rule_list "$path" "${arg%%=*}" del "${arg#*=}"
 				;;
 			name=*)
 				_reject_ctrl "${arg#*=}"
@@ -298,28 +287,6 @@ use 'sdx router update' to change it, or pick another name"
 					die "block rules match destinations, not clients"
 				uci set "${path}.type=${newtype}"
 				echo "  type → $newtype"
-				changes=$((changes + 1))
-				;;
-			domain=*)
-				_rule_kind_allows "$path" destinations
-				uci add_list "${path}.domain=${arg#*=}"
-				echo "  + domain '${arg#*=}'"
-				changes=$((changes + 1))
-				;;
-			ip=*)
-				_rule_kind_allows "$path" destinations
-				uci add_list "${path}.ip=${arg#*=}"
-				echo "  + ip '${arg#*=}'"
-				changes=$((changes + 1))
-				;;
-			clear-domains)
-				uci delete "${path}.domain" 2>/dev/null
-				echo "  - all domains"
-				changes=$((changes + 1))
-				;;
-			clear-ips)
-				uci delete "${path}.ip" 2>/dev/null
-				echo "  - all ips"
 				changes=$((changes + 1))
 				;;
 			list_url=*)
@@ -531,8 +498,8 @@ start	Start the service
 stop	Stop the service
 restart	Restart the service
 show [#|name ...]	List entries, or show some	List rules, or show the named ones with all their fields
-add <name> k=v ...	Add a rule	Add a rule: type=direct|overlay|block, then domain= ip= list_url= list_path= or client_mac= client_ip=
-update <#|name> k=v ...	Modify an entry	Modify a rule: key=value, domain= del-domain= ip= del-ip= client_mac= client_ip= del-client_*=
+add <name> k=v ...	Add a rule	Add a rule: type=direct|overlay|block, then domain=a,b ip= list_url= list_path= or client_mac= client_ip=
+update <#|name> k=v ...	Modify an entry	Modify a rule: type= name= list_*=; lists: domain=a,b replaces, add-domain= adds, del-domain= removes (same for ip, client_mac, client_ip)
 enable [#|name ...]	Enable the service or entries	Enable the service, or the named rules
 disable [#|name ...]	Disable the service or entries	Disable the service (also at boot), or the named rules
 remove <#|name ...>	Remove entries	Remove rules
