@@ -8,7 +8,7 @@ seedex_is_uri() {
 	*://*) ;;
 	*) return 1 ;;
 	esac
-	scheme=$(printf '%s' "${1%%://*}" | tr 'A-Z' 'a-z')
+	scheme=$(printf '%s' "${1%%://*}" | tr '[:upper:]' '[:lower:]')
 	case " $SEEDEX_URI_SCHEMES " in
 	*" $scheme "*) return 0 ;;
 	esac
@@ -39,7 +39,7 @@ _uri_fail() {
 
 _uri_split() {
 	local rest="$1"
-	URI_SCHEME=$(printf '%s' "${rest%%://*}" | tr 'A-Z' 'a-z')
+	URI_SCHEME=$(printf '%s' "${rest%%://*}" | tr '[:upper:]' '[:lower:]')
 	rest="${rest#*://}"
 	URI_FRAGMENT=""
 	case "$rest" in
