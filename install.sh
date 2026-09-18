@@ -200,7 +200,7 @@ if [ -n "$PKGS" ]; then
 	case "$PM:$seedex_key_ok" in
 	apk:1) apk add $PKGS ;;
 	apk:0) apk add --allow-untrusted $PKGS ;;
-	opkg:*) opkg install $PKGS ;;
+	opkg:*) opkg install --force-reinstall $PKGS ;;
 	esac
 elif [ "$LUCI" = 1 ]; then
 	$PM_INSTALL seedex-box luci-app-seedex
