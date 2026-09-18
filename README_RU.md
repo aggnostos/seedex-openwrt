@@ -40,11 +40,13 @@ sdx link add agent https://203.0.113.5:8447 <token> <fingerprint>
 sdx apply
 ```
 
-Вы также можете импортировать нативные конфигурационные файлы AWG или sing-box:
+Вы также можете импортировать нативные конфигурационные файлы WG, AWG, sing-box или прокси URI:
 
 ```sh
 sdx import awg.conf
+sdx import wg.conf
 sdx import sing-box.json
+sdx import vless://...
 sdx apply
 ```
 
@@ -73,6 +75,7 @@ Uplink:
 [*] VPN:
     Configs:
     [ ] awg         362 ms
+    [ ] wg          324 ms  
 
 [*] Proxy:
     Configs:
