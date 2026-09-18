@@ -236,7 +236,14 @@ _link_pick() {
 	printf '\r\n' >&3
 	_link_pick_restore
 	trap - EXIT INT TERM
-	printf '%s\n' "$selected"
+	local picked=""
+	for item in "$@"; do
+		name="${item#*:}"
+		case " $selected " in
+		*" $name "*) picked="${picked:+$picked }$name" ;;
+		esac
+	done
+	printf '%s\n' "$picked"
 }
 
 _link_pick_restore() {
