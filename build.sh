@@ -44,6 +44,11 @@ resolve_version() {
 	STAMP="$version"
 	VERSION="$(printf '%s\n' "$version" | sed -n '1{s/^[vV]//;s/[^0-9.].*$//;p;}')"
 	[ -n "$VERSION" ] || die "cannot derive a numeric package version from '$version'"
+	local rev
+	rev="$(printf '%s\n' "$version" | sed -n 's/^[^-]*-\([0-9]*\)-g[0-9a-f]*\(-dirty\)\{0,1\}$/\1/p')"
+	[ -n "$rev" ] || case "$version" in *-dirty) rev=0 ;; esac
+	APK_VERSION="$VERSION${rev:+-r$rev}"
+	IPK_VERSION="$VERSION${rev:+-$rev}"
 }
 
 normalize() {
@@ -94,13 +99,13 @@ prepare_signing() {
 
 mkpkg() {
 	local name="$1" description="$2" depends="$3" scripts="$4"
-	local out="$FEED_DIR/${name}-${VERSION}.apk" script_args="" s
+	local out="$FEED_DIR/${name}-${APK_VERSION}.apk" script_args="" s
 	for s in post-install post-upgrade pre-deinstall post-deinstall; do
 		[ -f "$ROOT/$scripts/$s" ] && script_args="$script_args --script $s:$scripts/$s"
 	done
-	log "packaging $name $VERSION ($ARCH)"
+	log "packaging $name $APK_VERSION ($ARCH)"
 	docker run --rm -v "$ROOT:/seedex" -w /seedex "${SIGN_ARGS[@]}" \
-		-e "NAME=$name" -e "VERSION=$VERSION" -e "ARCH=$ARCH" \
+		-e "NAME=$name" -e "VERSION=$APK_VERSION" -e "ARCH=$ARCH" \
 		-e "DESCRIPTION=$description" -e "DEPENDS=$depends" -e "SCRIPT_ARGS=$script_args" \
 		-e "OUT=/seedex/${out#"$ROOT/"}" \
 		"$BUILD_IMAGE" sh -euc '
@@ -126,10 +131,10 @@ mkpkg() {
 
 mkipk() {
 	local name="$1" description="$2" depends="$3" scripts="$4"
-	local out="$FEED_DIR/${name}_${VERSION}_all.ipk"
-	log "packaging $name $VERSION (ipk)"
+	local out="$FEED_DIR/${name}_${IPK_VERSION}_all.ipk"
+	log "packaging $name $IPK_VERSION (ipk)"
 	docker run --rm -v "$ROOT:/seedex" -w /seedex \
-		-e "NAME=$name" -e "VERSION=$VERSION" -e "DESCRIPTION=$description" -e "DEPENDS=$depends" \
+		-e "NAME=$name" -e "VERSION=$IPK_VERSION" -e "DESCRIPTION=$description" -e "DEPENDS=$depends" \
 		-e "SCRIPTS=$scripts" -e "OUT=/seedex/${out#"$ROOT/"}" \
 		"$BUILD_IMAGE" sh -euc '
 			work=$(mktemp -d)
@@ -222,7 +227,7 @@ mkindex() {
 
 resolve_version
 prepare_image
-log "version $STAMP${VERSION:+$([ "$STAMP" = "$VERSION" ] || echo " (package $VERSION)")}"
+log "version $STAMP (apk $APK_VERSION, ipk $IPK_VERSION)"
 stage seedex-box
 stage luci-app-seedex
 mkdir -p "$FEED_DIR"
@@ -230,10 +235,10 @@ rm -f "$FEED_DIR"/*.apk "$FEED_DIR/packages.adb" "$FEED_DIR"/*.ipk "$FEED_DIR"/P
 prepare_signing
 BOX_DEPS="$(printf '%s' "$BOX_DEPENDS" | tr '\n' ' ') sing-box>=${SINGBOX_MIN} sing-box<${SINGBOX_MAX}"
 mkpkg seedex-box "Seedex router: CLI, VPN, proxy and policy routing" "$BOX_DEPS" seedex-box/package
-mkpkg luci-app-seedex "Seedex LuCI interface" "seedex-box=$VERSION luci-base" luci-app-seedex/package
+mkpkg luci-app-seedex "Seedex LuCI interface" "seedex-box=$APK_VERSION luci-base" luci-app-seedex/package
 mkindex
 mkipk seedex-box "Seedex router: CLI, VPN, proxy and policy routing" "$BOX_DEPS" seedex-box/package
-mkipk luci-app-seedex "Seedex LuCI interface" "seedex-box=$VERSION luci-base" luci-app-seedex/package
+mkipk luci-app-seedex "Seedex LuCI interface" "seedex-box=$IPK_VERSION luci-base" luci-app-seedex/package
 mkopkgindex
 log "feeds ready in build/:"
 (cd "$BUILD" && find . -type f ! -path './payload/*' | sort | sed 's|^\./|  |')

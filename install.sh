@@ -65,7 +65,10 @@ if [ $# -gt 0 ]; then
 		*) die "$f is not a package for $PM" ;;
 		esac
 		f="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
-		PKGS="$PKGS $f"
+		case "${f##*/}" in
+		seedex-box[-_]*) PKGS="$f $PKGS" ;;
+		*) PKGS="$PKGS $f" ;;
+		esac
 		LOCAL_KEY="${f%/*}/../keys/$SEEDEX_KEY_NAME"
 	done
 fi
