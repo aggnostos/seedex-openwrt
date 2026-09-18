@@ -26,10 +26,10 @@ bump:
 	fi
 
 lint:
-	shfmt -l -d build.sh install.sh seedex-box/files/usr/bin/* seedex-box/files/usr/lib/seedex/*.sh \
+	shfmt -l -d build.sh install.sh seedex-box/files/usr/bin/* seedex-box/files/usr/lib/seedex/*.sh seedex-box/files/usr/lib/seedex/vpn/*.sh \
 		seedex-box/files/etc/init.d/* seedex-box/files/etc/hotplug.d/*/* seedex-box/package/* \
 		luci-app-seedex/files/usr/libexec/rpcd/* luci-app-seedex/package/*
-	shellcheck -x build.sh install.sh seedex-box/files/usr/bin/* seedex-box/files/usr/lib/seedex/*.sh \
+	shellcheck -x build.sh install.sh seedex-box/files/usr/bin/* seedex-box/files/usr/lib/seedex/*.sh seedex-box/files/usr/lib/seedex/vpn/*.sh \
 		seedex-box/files/etc/init.d/* seedex-box/files/etc/hotplug.d/*/* seedex-box/package/* \
 		luci-app-seedex/files/usr/libexec/rpcd/* luci-app-seedex/package/*
 	for f in luci-app-seedex/files/www/luci-static/resources/seedex/*.js \

@@ -174,7 +174,7 @@ $PM update || {
 
 log "installing amneziawg"
 if [ "$awg_ok" = 0 ]; then
-	warn "amneziawg skipped — rerun once $AWG_FEED is reachable. VPN stays down until then."
+	warn "amneziawg skipped — rerun once $AWG_FEED is reachable. Plain WireGuard configs still work."
 else
 	case "$PM" in
 	apk) awg_cmd="apk add --upgrade --latest kmod-amneziawg amneziawg-tools" ;;
@@ -183,7 +183,7 @@ else
 	$awg_cmd || {
 		warn "could not install amneziawg for OpenWrt $release on $target."
 		warn "The awg-openwrt feed may not have this release yet — see"
-		warn "$AWG_FEED/ and rerun once it does. VPN stays down until then."
+		warn "$AWG_FEED/ and rerun once it does. Plain WireGuard configs still work."
 	}
 fi
 

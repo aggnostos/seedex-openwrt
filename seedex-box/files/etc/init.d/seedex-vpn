@@ -5,24 +5,22 @@ USE_PROCD=1
 TAG="seedex-vpn"
 . /usr/lib/seedex/common.sh
 . /lib/functions.sh
+seedex_vpn_load
 
 RUNDIR="$SEEDEX_RUNDIR/vpn"
 
 NFT_TABLE="seedex_vpn"
 
-IFACE_N=0
-
 setup_interface() {
 	local section="$1"
-	local enabled config name interface address mtu
+	local enabled config name proto interface
 
 	config_get_bool enabled "$section" enabled 0
 	[ "$enabled" -eq 1 ] || return 0
 
 	config_get config "$section" config ''
 	config_get name "$section" name "$section"
-	interface="awg$IFACE_N"
-	IFACE_N=$((IFACE_N + 1))
+	config_get proto "$section" proto ''
 
 	[ -n "$config" ] || {
 		log_err "config '$name': missing config path"
@@ -32,77 +30,36 @@ setup_interface() {
 		log_err "config '$name': '$config' not found"
 		return 1
 	}
-
-	command -v awg >/dev/null 2>&1 || {
-		log_err "config '$name': awg not installed"
+	[ -n "$proto" ] || proto=$(seedex_vpn_detect "$config") || {
+		log_err "config '$name': not a known VPN config"
 		return 1
 	}
-
-	address=$(seedex_awg_field "$config" Address)
-	[ -n "$address" ] || config_get address "$section" address ''
-	mtu=$(seedex_awg_field "$config" MTU)
-	[ -n "$mtu" ] || mtu=1420
-
-	[ -n "$address" ] || {
-		log_err "config '$name': no Address in '$config' and none in UCI"
+	case " $SEEDEX_VPN_PROTOCOLS " in
+	*" $proto "*) ;;
+	*)
+		log_err "config '$name': no module for protocol '$proto'"
 		return 1
-	}
+		;;
+	esac
 
-	if ip link show "$interface" >/dev/null 2>&1; then
-		ip link delete "$interface" 2>/dev/null
-	fi
-	if ! ip link add dev "$interface" type amneziawg 2>/dev/null; then
-		log_err "config '$name': failed to create iface '$interface'"
-		return 1
-	fi
+	local n
+	eval "n=\${IFACE_N_$proto:-0}"
+	interface="$proto$n"
+	eval "IFACE_N_$proto=$((n + 1))"
 
-	local staged="$RUNDIR/${section}.conf"
-	sed -E '/^[[:space:]]*[AaMmDdTtPpSs][A-Za-z]*[[:space:]]*=/{
-		/^[[:space:]]*([Aa]ddress|[Mm][Tt][Uu]|[Dd][Nn][Ss]|[Tt]able|[Pp]re[UuDd]|[Pp]ost[UuDd]|[Ss]ave[Cc]onfig)/d
-	}' "$config" >"$staged"
-	chmod 600 "$staged"
+	"vpn_${proto}_up" "$interface" "$config" "$name" || return 1
 
-	local setconf_err
-	if ! setconf_err=$(awg setconf "$interface" "$staged" 2>&1); then
-		setconf_err=$(printf '%s' "$setconf_err" | tr '\n' ' ')
-		log_err "config '$name': awg setconf failed for '$config'${setconf_err:+: $setconf_err}"
-		rm -f "$staged"
-		ip link delete "$interface" 2>/dev/null
-		return 1
-	fi
-	rm -f "$staged"
-
-	local one addrs_added=0
-	for one in $(echo "$address" | tr ',' ' '); do
-		if ip addr add "$one" dev "$interface" 2>/dev/null; then
-			addrs_added=$((addrs_added + 1))
-		else
-			log_warn "config '$name': failed to add address '$one'"
-		fi
-	done
-
-	if [ "$addrs_added" -eq 0 ]; then
-		log_err "config '$name': no usable address in '$address'"
-		ip link delete "$interface" 2>/dev/null
-		return 1
-	fi
-	ip link set "$interface" mtu "$mtu"
-	ip link set "$interface" up
-
-	echo "$interface" >>"$RUNDIR/active_ifaces"
-
+	echo "$interface $proto" >>"$RUNDIR/active_ifaces"
 	seedex_register_iface "$interface" "vpn" "$name"
-	log_debug "config '$name' up on $interface (config=$config address=$address mtu=$mtu)"
 }
 
 teardown_interfaces() {
-	local interface
+	local interface proto
 	[ -f "$RUNDIR/active_ifaces" ] || return 0
-	while read -r interface; do
+	while read -r interface proto; do
 		[ -n "$interface" ] || continue
 		seedex_unregister_iface "$interface"
-		ip link set "$interface" down 2>/dev/null
-		ip link delete "$interface" 2>/dev/null
+		"vpn_${proto:-wg}_down" "$interface"
 		log_debug "$interface down"
 	done <"$RUNDIR/active_ifaces"
 }
@@ -151,7 +108,7 @@ _cleanup_routing() {
 
 _print_active_interfaces() {
 	[ -f "$RUNDIR/active_ifaces" ] || return 0
-	cat "$RUNDIR/active_ifaces"
+	awk '{ print $1 }' "$RUNDIR/active_ifaces"
 }
 
 service_triggers() {

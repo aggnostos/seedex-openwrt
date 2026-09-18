@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD="$ROOT/build"
 
 BOX_DEPENDS="curl ca-bundle jq coreutils-stty nftables-json kmod-nft-core kmod-nft-fib
-kmod-nft-nat kmod-nft-offload dnsmasq-full https-dns-proxy"
+kmod-nft-nat kmod-nft-offload dnsmasq-full https-dns-proxy kmod-wireguard wireguard-tools"
 
 IMAGE="${SEEDEX_APK_IMAGE:-alpine:edge}"
 BUILD_IMAGE="seedex-build"

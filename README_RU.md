@@ -14,7 +14,7 @@ Seedex — защитный слой сети для роутеров на OpenW
 ## Требования
 
 - Роутер на OpenWrt 24.10.2 или новее с выходом в интернет.
-- Сервер с [seedex-agent](https://github.com/aggnostos/seedex-agent), AmneziaWG или sing-box.
+- Сервер с [seedex-agent](https://github.com/aggnostos/seedex-agent), WireGuard, AmneziaWG или sing-box.
 
 > [!NOTE]
 > Пакеты `noarch`. Подходит любая платформа OpenWrt: `apk` на 25.x и `opkg` на 24.10.

@@ -24,22 +24,24 @@ _vpn_entry() {
 		fi
 		local idx="$1"
 		if [ -z "$idx" ]; then
-			printf "    %-4s %-18s %-8s %s\n" "#" "NAME" "IFACE" "CONFIG"
+			printf "    %-4s %-18s %-5s %-8s %s\n" "#" "NAME" "PROTO" "IFACE" "CONFIG"
 
 			idx=0
 			while uci -q get "seedex-vpn.@config[$idx]" >/dev/null 2>&1; do
-				local name enabled config state iface
+				local name enabled config state iface proto
 				name=$(uci -q get "seedex-vpn.@config[$idx].name")
 				enabled=$(uci -q get "seedex-vpn.@config[$idx].enabled")
 				config=$(uci -q get "seedex-vpn.@config[$idx].config")
+				proto=$(uci -q get "seedex-vpn.@config[$idx].proto")
+				[ -n "$proto" ] || proto=$(seedex_vpn_detect "$config" 2>/dev/null)
 				iface=$(seedex_iface_for_config vpn "$name")
 
 				state="[ ]"
 				[ "$enabled" = "1" ] && state="[*]"
 				[ -f "$config" ] || config="${config:-none} (missing)"
 
-				printf "%s %-4s %-18s %-8s %s\n" \
-					"$state" "$idx" "${name:--}" "${iface:--}" "$config"
+				printf "%s %-4s %-18s %-5s %-8s %s\n" \
+					"$state" "$idx" "${name:--}" "${proto:--}" "${iface:--}" "$config"
 				idx=$((idx + 1))
 			done
 			return 0
@@ -54,6 +56,7 @@ _vpn_entry() {
 		config=$(uci -q get "${path}.config")
 
 		field "Name:" "${name:--}"
+		field "Protocol:" "$(uci -q get "${path}.proto" || seedex_vpn_detect "$config" 2>/dev/null)"
 		field "State:" "$([ "$enabled" = "1" ] && echo "[*]" || echo "[ ]")"
 		local iface
 		iface=$(seedex_iface_for_config vpn "$name")
@@ -83,9 +86,10 @@ _vpn_entry() {
 	esac
 }
 
-_import_awg() {
-	local src="$1" name dest sid existing
+_import_vpn() {
+	local src="$1" name dest sid existing proto
 	name=$(basename "$src" .conf)
+	proto=$(seedex_vpn_detect "$src") || die "'$src' is not a WireGuard or AmneziaWG config"
 
 	if _find_section_by_name seedex-vpn config "$name" >/dev/null; then
 		die "config name '$name' is already used
@@ -102,13 +106,14 @@ rename one of the two config files"
 
 	uci set "seedex-vpn.${sid}=config" || die "cannot create UCI section '$sid'"
 	uci set "seedex-vpn.${sid}.name=${name}"
+	uci set "seedex-vpn.${sid}.proto=${proto}"
 	uci set "seedex-vpn.${sid}.enabled=1"
 	uci set "seedex-vpn.${sid}.config=${dest}"
 
-	echo "added VPN config '$name'"
+	echo "added $proto config '$name'"
 }
 
-svc_import_file() { _import_awg "$1"; }
+svc_import_file() { _import_vpn "$1"; }
 
 svc_status() {
 	seedex_status_header vpn "VPN"

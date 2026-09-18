@@ -78,6 +78,8 @@ _link_place() {
 		return 1
 	fi
 	dest=$(uci -q get "seedex-$svc.$sid.config")
+	[ "$svc" != vpn ] || [ -n "$(uci -q get "seedex-vpn.$sid.proto")" ] ||
+		uci set "seedex-vpn.$sid.proto=$(seedex_vpn_detect "$file")"
 	if [ -f "$dest" ] && cmp -s "$file" "$dest"; then
 		[ -z "$owner" ] && return 0
 		return 2
@@ -287,7 +289,7 @@ _link_sync_one() {
 	seen=""
 	for svc in vpn proxy; do
 		case "$svc" in
-		vpn) kind=awg ext=conf ;;
+		vpn) kind=vpn ext=conf ;;
 		proxy) kind=singbox ext=json ;;
 		esac
 		keep=""

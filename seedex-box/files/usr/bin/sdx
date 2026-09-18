@@ -276,13 +276,13 @@ _import_one() {
 	kind=$(seedex_config_kind "$file")
 	case "$kind" in
 	links) _import_links_file "$file" ;;
-	awg | singbox | rules)
+	vpn | singbox | rules)
 		reason=$(seedex_config_validate "$file" "$kind") || {
 			warn "$(basename "$file"): $reason"
 			return 1
 		}
 		case "$kind" in
-		awg) _svc vpn --import "$file" ;;
+		vpn) _svc vpn --import "$file" ;;
 		singbox) _svc proxy --import "$file" ;;
 		rules) _svc router --import "$file" ;;
 		esac

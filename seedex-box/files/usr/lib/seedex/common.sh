@@ -111,7 +111,7 @@ seedex_config_kind() {
 	[ -f "$file" ] || return 1
 
 	if grep -qi '^[[:space:]]*\[Interface\]' "$file"; then
-		echo awg
+		echo vpn
 	elif head -c 200 "$file" | grep -qE '^[[:space:]]*[a-z0-9]+://'; then
 		echo links
 	elif head -c 200 "$file" | grep -q '^[[:space:]]*\['; then
@@ -123,28 +123,30 @@ seedex_config_kind() {
 	fi
 }
 
-seedex_awg_field() {
-	local file="$1" key="$2"
+SEEDEX_VPN_PROTOCOLS=""
 
-	awk -v want="$key" '
-		BEGIN { want = tolower(want) }
-		/^[[:space:]]*\[/ {
-			in_iface = (tolower($0) ~ /^[[:space:]]*\[interface\]/)
-			next
+seedex_vpn_load() {
+	local module
+	[ -z "$SEEDEX_VPN_PROTOCOLS" ] || return 0
+	for module in /usr/lib/seedex/vpn/*.sh; do
+		[ -f "$module" ] || continue
+		# shellcheck disable=SC1090
+		. "$module"
+		module="${module##*/}"
+		SEEDEX_VPN_PROTOCOLS="${SEEDEX_VPN_PROTOCOLS:+$SEEDEX_VPN_PROTOCOLS }${module%.sh}"
+	done
+}
+
+seedex_vpn_detect() {
+	local proto
+	seedex_vpn_load
+	for proto in $SEEDEX_VPN_PROTOCOLS; do
+		"vpn_${proto}_detect" "$1" && {
+			echo "$proto"
+			return 0
 		}
-		!in_iface { next }
-		{
-			line = $0
-			sub(/[[:space:]]*#.*$/, "", line)
-			if (index(line, "=") == 0) next
-			k = substr(line, 1, index(line, "=") - 1)
-			gsub(/^[[:space:]]+|[[:space:]]+$/, "", k)
-			if (tolower(k) != want) next
-			v = substr(line, index(line, "=") + 1)
-			gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
-			print v
-			exit
-		}' "$file" 2>/dev/null
+	done
+	return 1
 }
 
 seedex_config_endpoints() {
@@ -152,15 +154,11 @@ seedex_config_endpoints() {
 	[ -f "$file" ] || return 0
 
 	case "$kind" in
-	awg)
-		awk '
-			tolower($0) ~ /^[[:space:]]*endpoint[[:space:]]*=/ {
-				v = substr($0, index($0, "=") + 1)
-				gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
-				if (v ~ /^\[/) { sub(/^\[/, "", v); sub(/\].*$/, "", v) }
-				else sub(/:[0-9]+$/, "", v)
-				if (v != "") print v
-			}' "$file"
+	vpn)
+		local proto
+		seedex_vpn_load
+		proto=$(seedex_vpn_detect "$file") || return 0
+		"vpn_${proto}_endpoints" "$file"
 		;;
 	singbox)
 		jq -r '.outbounds[]? | select(.server) | .server' "$file" 2>/dev/null
@@ -172,27 +170,14 @@ seedex_config_validate() {
 	local file="$1" kind="$2"
 
 	case "$kind" in
-	awg)
-		grep -qi '^[[:space:]]*\[Interface\]' "$file" ||
-			{
-				echo "no [Interface] section"
-				return 1
-			}
-		[ -n "$(seedex_awg_field "$file" PrivateKey)" ] ||
-			{
-				echo "no PrivateKey in [Interface]"
-				return 1
-			}
-		grep -qi '^[[:space:]]*\[Peer\]' "$file" ||
-			{
-				echo "no [Peer] section"
-				return 1
-			}
-		grep -qiE '^[[:space:]]*PublicKey[[:space:]]*=' "$file" ||
-			{
-				echo "no PublicKey in [Peer]"
-				return 1
-			}
+	vpn)
+		local proto
+		seedex_vpn_load
+		proto=$(seedex_vpn_detect "$file") || {
+			echo "not a WireGuard or AmneziaWG config"
+			return 1
+		}
+		"vpn_${proto}_validate" "$file"
 		;;
 	rules)
 		jq empty "$file" 2>/dev/null || {
@@ -271,9 +256,19 @@ _seedex_iface_write() {
 	printf '%s\n' "$body" >"$tmp" && mv "$tmp" "$SEEDEX_IFACE_DIR/$iface"
 }
 
+seedex_tunnels_refresh() {
+	local ifaces
+	nft list set inet seedex_router tunnels >/dev/null 2>&1 || return 0
+	nft flush set inet seedex_router tunnels 2>/dev/null
+	ifaces=$(seedex_active_ifaces | tr '\n' ',')
+	ifaces="${ifaces%,}"
+	[ -z "$ifaces" ] || nft add element inet seedex_router tunnels "{ $ifaces }" 2>/dev/null
+}
+
 seedex_register_iface() {
 	local iface="$1" owner="$2" name="$3"
 	_seedex_iface_write "$iface" "$owner $name"
+	nft add element inet seedex_router tunnels "{ $iface }" 2>/dev/null
 }
 
 seedex_iface_name() {
@@ -322,6 +317,7 @@ seedex_unregister_iface() {
 	local iface="$1"
 	seedex_probe_route_remove "$iface"
 	rm -f "$SEEDEX_IFACE_DIR/$iface"
+	nft delete element inet seedex_router tunnels "{ $iface }" 2>/dev/null
 }
 
 _seedex_find_wan_zone() {
