@@ -52,15 +52,16 @@ _rule_kind_allows() {
 }
 
 _rule_list() {
-	local path="$1" key="$2" op="$3" values="$4" v label
+	local path="$1" key="$2" op="$3" values="$4" v label adds=0
+	[ "$op" = del ] || [ -z "$values" ] || adds=1
 	case "$key" in
 	client_mac | client_ip)
-		[ "$op" = del ] || {
+		[ "$adds" = 0 ] || {
 			_rule_kind_allows "$path" clients
 			[ "$(uci -q get "${path}.type")" != block ] || die "block rules match destinations, not clients"
 		}
 		;;
-	*) [ "$op" = del ] || _rule_kind_allows "$path" destinations ;;
+	*) [ "$adds" = 0 ] || _rule_kind_allows "$path" destinations ;;
 	esac
 	[ "$op" != set ] || uci -q delete "${path}.${key}"
 	for v in $(printf '%s' "$values" | tr ',' ' '); do
