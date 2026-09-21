@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-<p align="center">English | <a href="README_RU.md">Русский</a></p>
+<p align="center">English | <a href="https://docs.seedex.net/ru">Русский</a></p>
 
 # Seedex OpenWrt
 

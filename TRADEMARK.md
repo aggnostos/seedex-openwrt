@@ -1,4 +1,4 @@
-<p align="center">English | <a href="TRADEMARK_RU.md">Русский</a></p>
+<p align="center">English | <a href="https://docs.seedex.net/ru/trademark">Русский</a></p>
 
 # Seedex trademark policy
 
