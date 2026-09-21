@@ -2,7 +2,7 @@
 
 set -eu
 
-SEEDEX_FEED="${SEEDEX_FEED:-https://aggnostos.github.io/seedex-openwrt}"
+SEEDEX_FEED="${SEEDEX_FEED:-https://feed.seedex.net}"
 AWG_FEED="${AWG_FEED:-https://2grey.github.io/awg-openwrt}"
 
 APK_KEYS_DIR=/etc/apk/keys

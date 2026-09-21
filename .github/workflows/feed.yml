@@ -46,6 +46,7 @@ jobs:
           mkdir -p site
           cp -r build/noarch build/keys site/
           cp install.sh site/
+          echo feed.seedex.net > site/CNAME
 
       - uses: actions/upload-pages-artifact@v3
         with:
