@@ -7,6 +7,11 @@
 
 <p align="center">English | <a href="https://docs.seedex.net/ru">Русский</a></p>
 
+<p align="center">
+  <a href="https://github.com/aggnostos/seedex-openwrt/releases/latest"><img src="https://img.shields.io/github/v/release/aggnostos/seedex-openwrt" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--2.0-blue" alt="License: GPL-2.0"></a>
+</p>
+
 # Seedex OpenWrt
 
 Seedex is a secure network privacy layer for OpenWrt routers: VPN and Proxy, convenient routing, secured DNS, managed with a single command or the LuCI app.
