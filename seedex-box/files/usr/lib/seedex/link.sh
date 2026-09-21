@@ -373,7 +373,7 @@ _link_expose() {
 }
 
 link_add() {
-	local name="$1" url="$2" token="$3" fp="$4"
+	local name="$1" url="$2" token="$3" fp="$4" offered
 	[ -n "$name" ] && [ -n "$url" ] && [ -n "$token" ] && [ -n "$fp" ] ||
 		usage "sdx link add <name> <url> <token> <fingerprint>"
 	_link_check_name "$name"
@@ -395,7 +395,8 @@ remove it first with: sdx link remove $name"
 	uci commit seedex-link
 	_link_expose "$url"
 	echo "added link '$name'"
-	if [ -z "$(_link_offer "$name")" ]; then
+	offered=$(_link_offer "$name") || exit $?
+	if [ -z "$offered" ]; then
 		echo "$name offers no configs yet — add some on the server, then: sdx link select $name"
 	elif [ -t 0 ] && [ -t 1 ]; then
 		link_select "$name"
@@ -473,7 +474,7 @@ link_select() {
 	_link_section "$name"
 	if [ $# -eq 0 ]; then
 		_link_pick_or_die "$name"
-		offered=$(_link_offer "$name")
+		offered=$(_link_offer "$name") || exit $?
 		[ -n "$offered" ] || die "$name offers no configs yet"
 		picked=$(_link_selected "$name")
 		[ "$picked" = "*" ] && picked=$(printf '%s\n' "$offered" | sed 's/^[^:]*://' | tr '\n' ' ')
