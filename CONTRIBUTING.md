@@ -52,7 +52,7 @@ There is no automated test suite. Build the packages with `make build`, install 
 
 * Target `main` and keep the change small enough to review in one sitting.
 * Describe what the change does and why. Link the issue if there is one.
-* A change in user-facing behavior updates the documentation too: the READMEs in this repository and the pages in [seedex-docs](https://github.com/aggnostos/seedex-docs), in both languages.
+* A change in user-facing behavior updates the documentation too: the README in this repository and the pages in [seedex-docs](https://github.com/aggnostos/seedex-docs), where the English and Russian pages mirror each other.
 * CI must pass.
 
 ## License
