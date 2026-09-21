@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest a change in what the router does or how `sdx` and LuCI behave.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you're trying to do
+      description: The task, not the solution. What do you want the router to do that it doesn't?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: How it could work
+      description: The `sdx` command, the setting, or the LuCI change you have in mind, if any.
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do today instead

@@ -1,0 +1,55 @@
+name: Bug report
+description: Something on the router doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove keys, tokens, certificate fingerprints, and public IP addresses from any output before you paste it.
+  - type: input
+    id: openwrt
+    attributes:
+      label: OpenWrt version and router model
+      placeholder: OpenWrt 24.10.2, GL.iNet MT3000
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Seedex version
+      description: The output of `sdx version`.
+      placeholder: seedex 0.2.0
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: The commands you ran or the LuCI page you used, in order.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `sdx`
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output of `sdx logs`
+      description: The lines around the failure are enough.
+      render: text

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://docs.seedex.net
+    about: Getting started, every sdx command, and the LuCI app.
+  - name: Server side (seedex-agent)
+    url: https://github.com/aggnostos/seedex-agent/issues
+    about: Problems with sdx on the server, the VPN and proxy servers, or the Link API belong there.
