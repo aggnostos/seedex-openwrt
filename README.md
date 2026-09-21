@@ -29,24 +29,24 @@ On the router, run the installer as root:
 wget -O - https://aggnostos.github.io/seedex-openwrt/install.sh | sh
 ```
 
-The installer adds the Seedex package feed and installs `seedex-box` with the `sdx` command and `luci-app-seedex` for LuCI. Nothing is started until you apply the first config. To skip LuCI, run the installer as `| sh -s -- --no-luci`.
+The installer adds the Seedex package feed and installs `seedex-box` with the `sdx` command and `luci-app-seedex` for LuCI. Nothing is started until you apply the first config. To skip LuCI, run the installer with `| sh -s -- --no-luci`.
 
 ### 2. Connect the server
 
-If you use [seedex-agent](https://github.com/aggnostos/seedex-agent), paste the output of the `sdx link add <router>` command, pick the configs to import in the opened menu, and then apply them:
+If you use [seedex-agent](https://github.com/aggnostos/seedex-agent), paste the output of the `sdx link add <router>` command, pick the configs to import in the menu that opens, and then apply them:
 
 ```sh
 sdx link add agent https://203.0.113.5:8447 <token> <fingerprint>
 sdx apply
 ```
 
-You can also import native WG, AWG, sing-box configuration files or proxy URI:
+You can also import native WG, AWG, or sing-box configuration files, or a proxy URI:
 
 ```sh
 sdx import awg.conf
 sdx import wg.conf
 sdx import sing-box.json
-sdx import vless://...
+sdx import 'vless://...'
 sdx apply
 ```
 
@@ -88,22 +88,21 @@ Uplink:
     Intercept:  on
 
 Link:
-    [*] admin        https://203.0.113.5:8447         1 vpn, 2 proxy, 4 min ago
+    [*] admin        https://203.0.113.5:8447         2 vpn, 2 proxy, 4 min ago
 ```
 
 The **Uplink** section shows the tunnel that carries the traffic. In LuCI, the same information is under **Services > Seedex**.
 
 ### 4. Troubleshoot
 
-If the router doesn't route traffic, check the following:
-
+If the router doesn't route traffic, use:
 
 - `sdx logs` to see the service logs.
 - `sdx restart` to restart services in the right order.
 
 ## Where to go next
 
-- [Getting started](https://docs.seedex.net/getting-started) walks you through the full setup, including [seedex-agent](https://github.com/aggnostos/seedex-openwrt).
+- [Getting started](https://docs.seedex.net/getting-started) walks you through the full setup, including [seedex-agent](https://github.com/aggnostos/seedex-agent).
 - [seedex-box user guide](https://docs.seedex.net/user-guide/seedex-box) describes every `sdx` command and the LuCI app.
 - [Developer guide](https://docs.seedex.net/developer-guide/seedex-box) covers building, linting, and the project structure.
 

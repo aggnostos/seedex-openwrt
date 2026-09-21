@@ -7,9 +7,9 @@
 
 <p align="center"><a href="README.md">English</a> | Русский</p>
 
-# Seedex
+# Seedex OpenWrt
 
-Seedex — защитный слой сети для роутеров на OpenWrt: VPN и Proxy, удобная маршрутизация, защищённый DNS, управляемые одной командой или LuCI приложением.
+Seedex — защитный слой сети для роутеров на OpenWrt: VPN и Proxy, удобная маршрутизация, защищённый DNS, управляемые одной командой или приложением для LuCI.
 
 ## Требования
 
@@ -33,20 +33,20 @@ wget -O - https://aggnostos.github.io/seedex-openwrt/install.sh | sh
 
 ### 2. Подключите сервер
 
-Если вы используете [seedex-agent](https://github.com/aggnostos/seedex-agent), вставьте вывод команды `sdx link add <router>` на сервере, выберите конфигурационные файлы для импорта в открывшемся меню и примените их:
+Если вы используете [seedex-agent](https://github.com/aggnostos/seedex-agent), вставьте на роутере вывод команды `sdx link add <router>` с сервера, выберите конфиги для импорта в открывшемся меню и примените их:
 
 ```sh
 sdx link add agent https://203.0.113.5:8447 <token> <fingerprint>
 sdx apply
 ```
 
-Вы также можете импортировать нативные конфигурационные файлы WG, AWG, sing-box или прокси URI:
+Вы также можете импортировать нативные конфиги WG, AWG или sing-box либо ссылку на прокси:
 
 ```sh
 sdx import awg.conf
 sdx import wg.conf
 sdx import sing-box.json
-sdx import vless://...
+sdx import 'vless://...'
 sdx apply
 ```
 
@@ -75,7 +75,7 @@ Uplink:
 [*] VPN:
     Configs:
     [ ] awg         362 ms
-    [ ] wg          324 ms  
+    [ ] wg          324 ms
 
 [*] Proxy:
     Configs:
@@ -88,17 +88,16 @@ Uplink:
     Intercept:  on
 
 Link:
-    [*] admin        https://203.0.113.5:8447         1 vpn, 2 proxy, 4 min ago
+    [*] admin        https://203.0.113.5:8447         2 vpn, 2 proxy, 4 min ago
 ```
 
 Раздел **Uplink** показывает туннель, который несёт трафик. В LuCI то же самое находится в **Services > Seedex**.
 
 ### 4. Если что-то не работает
 
-Если роутер не маршрутизирует трафик используйте:
+Если роутер не маршрутизирует трафик, используйте:
 
-- `sdx logs` для просмотра сервисных логов.
-
+- `sdx logs` для просмотра логов сервисов.
 - `sdx restart` для перезапуска сервисов в правильном порядке.
 
 ## Что дальше
@@ -106,9 +105,11 @@ Link:
 - [Начало работы](https://docs.seedex.net/ru/getting-started) проводит через полную настройку, включая [seedex-agent](https://github.com/aggnostos/seedex-agent).
 - [Руководство по seedex-box](https://docs.seedex.net/ru/user-guide/seedex-box) описывает каждую команду `sdx` и приложение для LuCI.
 - [Для разработчиков](https://docs.seedex.net/ru/developer-guide/seedex-box) рассказывает о сборке, линте и структуре проекта.
+
 ## Участие
 
-Сообщения об ошибках, предложения и pull request'ы приветствуются.
+Сообщения об ошибках, предложения и пул-реквесты приветствуются.
+
 ## Лицензия
 
 GPL-2.0.
