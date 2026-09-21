@@ -5,7 +5,7 @@
 TAG="seedex-router"
 . /usr/lib/seedex/common.sh
 
-STATE_FILE="$SEEDEX_RUNDIR/router/active_iface"
+STATE_FILE="$SEEDEX_ROUTER_STATE"
 
 CONN_FILE="$SEEDEX_RUNDIR/router/connectivity.state"
 
@@ -14,26 +14,7 @@ REFRESH_DIR="$SEEDEX_RUNDIR/router/refresh"
 
 ROUTE_TABLE="$SEEDEX_ROUTE_TABLE"
 
-_load_config() {
-	config_load seedex-router
-	config_get INTERVAL main watchdog_interval '30'
-	config_get PROBE_URL main watchdog_url 'https://www.gstatic.com/generate_204'
-	config_get TIMEOUT main watchdog_timeout '5'
-	config_get DEFAULT_ROUTE main default_route 'direct'
-	[ "$INTERVAL" -gt 0 ] 2>/dev/null || INTERVAL=30
-	[ "$TIMEOUT" -gt 0 ] 2>/dev/null || TIMEOUT=5
-	[ -n "$PROBE_URL" ] || PROBE_URL='https://www.gstatic.com/generate_204'
-}
-
-_load_config
-
-get_active() {
-	[ -f "$STATE_FILE" ] && cat "$STATE_FILE" || echo ""
-}
-
-set_active() {
-	echo "$1" >"$STATE_FILE"
-}
+seedex_router_load
 
 route_dev() {
 	ip route show default table "$ROUTE_TABLE" 2>/dev/null |
@@ -46,9 +27,7 @@ switch_to() {
 
 	[ "$iface" = "$current" ] && return 0
 
-	ip route replace default dev "$iface" table "$ROUTE_TABLE"
-	seedex_overlay_route6 "$iface"
-	set_active "$iface"
+	seedex_overlay_route "$iface"
 
 	if [ -z "$current" ]; then
 		log_info "watchdog: installed route via $iface (table was empty)"
@@ -62,7 +41,7 @@ SWITCH_MIN_GAIN_MS=20
 
 pick_active() {
 	local results="$1" current best best_rtt current_rtt
-	current=$(get_active)
+	current=$(seedex_active_iface)
 	best=$(echo "$results" | awk 'NF == 2 && (!found || $2 + 0 < min) { min = $2 + 0; line = $0; found = 1 } END { print line }')
 	[ -n "$best" ] || return 0
 	best_rtt="${best#* }"
@@ -82,7 +61,7 @@ write_connectivity() {
 	local tmp="${CONN_FILE}.new"
 	{
 		printf 'ts %s\n' "$(date +%s)"
-		printf 'interval %s\n' "$INTERVAL"
+		printf 'interval %s\n' "$WATCHDOG_INTERVAL"
 		printf 'active %s\n' "$active"
 		printf 'uplink %s\n' "$uplink"
 		echo "$results" | awk 'NF >= 1 {
@@ -142,7 +121,7 @@ check_list_refresh() {
 		local tmp="${dest}.new"
 
 		log_debug "refreshing list '$section' from '$list_url'"
-		if curl -fsSL --max-time 30 --max-filesize 10485760 -o "$tmp" "$list_url" 2>/dev/null; then
+		if seedex_list_fetch "$list_url" "$tmp"; then
 			if [ -f "$dest" ] && cmp -s "$tmp" "$dest"; then
 				rm -f "$tmp"
 				log_debug "list '$section' unchanged"
@@ -178,17 +157,17 @@ trap cleanup TERM INT
 
 mkdir -p "$(dirname "$STATE_FILE")" "$LISTS_DIR" "$REFRESH_DIR"
 
-log_info "watchdog started (interval=${INTERVAL}s)"
+log_info "watchdog started (interval=${WATCHDOG_INTERVAL}s)"
 
-write_connectivity "" "$(get_active)" 0
+write_connectivity "" "$(seedex_active_iface)" 0
 
 sleep 5 &
 wait $!
 
 while true; do
-	_load_config
+	seedex_router_load
 
-	results=$(seedex_probe_all_ifaces "$PROBE_URL" "$TIMEOUT")
+	results=$(seedex_probe_all_ifaces "$PROBE_URL" "$PROBE_TIMEOUT")
 	best=$(pick_active "$results")
 
 	if [ -n "$best" ]; then
@@ -199,9 +178,9 @@ while true; do
 		seedex_dns_bootstrap 1
 	fi
 
-	write_connectivity "$results" "$best" "$(seedex_probe_uplink "$PROBE_URL" "$TIMEOUT")"
+	write_connectivity "$results" "$best" "$(seedex_probe_uplink "$PROBE_URL" "$PROBE_TIMEOUT")"
 	check_list_refresh
 
-	sleep "$INTERVAL" &
+	sleep "$WATCHDOG_INTERVAL" &
 	wait $!
 done

@@ -21,10 +21,6 @@ usage() {
 	exit 2
 }
 
-_uci_quote() {
-	printf '%s' "$1" | sed "s/'/'\\\\''/g"
-}
-
 usage_block() {
 	local title="$1" row
 	shift
@@ -149,23 +145,6 @@ seedex_vpn_detect() {
 	return 1
 }
 
-seedex_config_endpoints() {
-	local file="$1" kind="$2"
-	[ -f "$file" ] || return 0
-
-	case "$kind" in
-	vpn)
-		local proto
-		seedex_vpn_load
-		proto=$(seedex_vpn_detect "$file") || return 0
-		"vpn_${proto}_endpoints" "$file"
-		;;
-	singbox)
-		jq -r '.outbounds[]? | select(.server) | .server' "$file" 2>/dev/null
-		;;
-	esac
-}
-
 seedex_config_validate() {
 	local file="$1" kind="$2"
 
@@ -247,6 +226,10 @@ SEEDEX_FWMARK='0x100'
 
 SEEDEX_ROUTE_TABLE='100'
 
+SEEDEX_PROBE_URL='https://www.gstatic.com/generate_204'
+
+SEEDEX_ROUTER_STATE="$SEEDEX_RUNDIR/router/active_iface"
+
 SEEDEX_IFACE_DIR="$SEEDEX_RUNDIR/ifaces.d"
 
 _seedex_iface_write() {
@@ -254,15 +237,6 @@ _seedex_iface_write() {
 	local tmp="$SEEDEX_IFACE_DIR/.${iface}.new"
 	mkdir -p "$SEEDEX_IFACE_DIR"
 	printf '%s\n' "$body" >"$tmp" && mv "$tmp" "$SEEDEX_IFACE_DIR/$iface"
-}
-
-seedex_tunnels_refresh() {
-	local ifaces
-	nft list set inet seedex_router tunnels >/dev/null 2>&1 || return 0
-	nft flush set inet seedex_router tunnels 2>/dev/null
-	ifaces=$(seedex_active_ifaces | tr '\n' ',')
-	ifaces="${ifaces%,}"
-	[ -z "$ifaces" ] || nft add element inet seedex_router tunnels "{ $ifaces }" 2>/dev/null
 }
 
 seedex_register_iface() {
@@ -334,7 +308,7 @@ _seedex_find_wan_zone() {
 	return 1
 }
 
-seedex_fw_add_device() {
+_seedex_fw_add_device() {
 	local iface="$1"
 	local idx
 	idx=$(_seedex_find_wan_zone) || {
@@ -350,7 +324,7 @@ seedex_fw_add_device() {
 	log_debug "firewall: staged $iface for wan zone"
 }
 
-seedex_fw_del_device() {
+_seedex_fw_del_device() {
 	local iface="$1"
 	local idx
 	idx=$(_seedex_find_wan_zone) || return 0
@@ -360,12 +334,44 @@ seedex_fw_del_device() {
 	log_debug "firewall: staged removal of $iface from wan zone"
 }
 
-seedex_fw_apply() {
+_seedex_fw_apply() {
 	[ "${SEEDEX_FW_DIRTY:-0}" = 1 ] || return 0
 	SEEDEX_FW_DIRTY=0
 	uci commit firewall
 	fw4 reload 2>/dev/null
 	log_debug "firewall: applied"
+}
+
+seedex_nat_enable() {
+	local table="$1" iface
+	shift
+	nft delete table inet "$table" 2>/dev/null
+	if ! nft add table inet "$table" ||
+		! nft add chain inet "$table" postrouting \
+			'{ type nat hook postrouting priority srcnat; policy accept; }'; then
+		log_err "nftables setup failed"
+		nft delete table inet "$table" 2>/dev/null
+		return 1
+	fi
+	for iface in "$@"; do
+		if nft add rule inet "$table" postrouting oifname "\"$iface\"" masquerade; then
+			_seedex_fw_add_device "$iface"
+		else
+			log_err "nft rule failed for $iface"
+		fi
+	done
+	_seedex_fw_apply
+	log_debug "nat enabled for: $*"
+}
+
+seedex_nat_disable() {
+	local table="$1" iface
+	shift
+	nft delete table inet "$table" 2>/dev/null
+	for iface in "$@"; do
+		_seedex_fw_del_device "$iface"
+	done
+	_seedex_fw_apply
 }
 
 seedex_all_ifaces() {
@@ -397,7 +403,7 @@ seedex_service_up() {
 }
 
 seedex_active_iface() {
-	cat "$SEEDEX_RUNDIR/router/active_iface" 2>/dev/null
+	cat "$SEEDEX_ROUTER_STATE" 2>/dev/null
 }
 
 seedex_iface_rtt() {
@@ -482,12 +488,31 @@ seedex_iface_has_v6() {
 	ip -6 addr show dev "$1" scope global 2>/dev/null | grep -q inet6
 }
 
-seedex_overlay_route6() {
+seedex_overlay_route() {
+	ip route replace default dev "$1" table "$SEEDEX_ROUTE_TABLE"
 	if seedex_iface_has_v6 "$1"; then
 		ip -6 route replace default dev "$1" table "$SEEDEX_ROUTE_TABLE"
 	else
 		ip -6 route replace unreachable default table "$SEEDEX_ROUTE_TABLE"
 	fi
+	mkdir -p "${SEEDEX_ROUTER_STATE%/*}"
+	echo "$1" >"$SEEDEX_ROUTER_STATE"
+}
+
+seedex_router_load() {
+	config_load seedex-router
+	config_get DEFAULT_ROUTE main default_route 'direct'
+	config_get PROBE_URL main watchdog_url "$SEEDEX_PROBE_URL"
+	config_get PROBE_TIMEOUT main watchdog_timeout '5'
+	config_get WATCHDOG_INTERVAL main watchdog_interval '30'
+	config_get_bool KILL_SWITCH main kill_switch 1
+	[ -n "$PROBE_URL" ] || PROBE_URL="$SEEDEX_PROBE_URL"
+	[ "$PROBE_TIMEOUT" -gt 0 ] 2>/dev/null || PROBE_TIMEOUT=5
+	[ "$WATCHDOG_INTERVAL" -gt 0 ] 2>/dev/null || WATCHDOG_INTERVAL=30
+}
+
+seedex_list_fetch() {
+	curl -fsSL --max-time 30 --max-filesize 10485760 -o "$2" "$1" 2>/dev/null
 }
 
 SEEDEX_DNS_RUNDIR="$SEEDEX_RUNDIR/dns"
@@ -499,22 +524,6 @@ SEEDEX_ROUTER_DIRECT_DYN="direct_dyn"
 
 SEEDEX_IPV4_RE='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$'
 SEEDEX_IPV6_RE='^[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(/[0-9]+)?$'
-
-seedex_link_hosts() {
-	local url host
-	for url in $(uci -q show seedex-link 2>/dev/null | sed -n "s/^seedex-link\.[^.]*\.url='\(.*\)'$/\1/p"); do
-		host="${url#*://}"
-		host="${host%%/*}"
-		case "$host" in
-		\[*\]*)
-			host="${host#[}"
-			host="${host%%]*}"
-			;;
-		*) host="${host%%:*}" ;;
-		esac
-		[ -z "$host" ] || printf '%s\n' "$host"
-	done
-}
 
 seedex_resolve() {
 	local domain="$1" family="${2:-4}" re result
@@ -528,35 +537,12 @@ seedex_resolve() {
 	echo "$result"
 }
 
-seedex_dns_wait() {
-	local seconds="${1:-15}" deadline
-	deadline=$(($(date +%s) + seconds))
-	while :; do
-		[ -z "$(seedex_resolve example.com)" ] || return 0
-		[ "$(date +%s)" -lt "$deadline" ] || break
-		sleep 1
-	done
-	log_warn "dns not available after ${seconds}s, domains may fail to resolve"
-	return 1
-}
-
-seedex_dnsmasq_confdir() {
-	local dir
-	dir="$(grep -s '^conf-dir=' /var/etc/dnsmasq.conf* 2>/dev/null | head -1 | cut -d= -f2)"
-	printf '%s\n' "${dir:-/tmp/dnsmasq.d}"
-}
-
 seedex_dns_upstream_ips() {
 	if [ -f "$SEEDEX_DNS_RUNDIR/upstream.ips" ]; then
 		cat "$SEEDEX_DNS_RUNDIR/upstream.ips"
 	else
 		awk '$1 == "nameserver" { print $2 }' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null
 	fi
-}
-
-seedex_dns_bootstrap_refresh() {
-	nft list set inet seedex_router dns_bootstrap 2>/dev/null | grep -qF elements || return 0
-	seedex_dns_bootstrap 1
 }
 
 seedex_dns_bootstrap() {
@@ -575,7 +561,7 @@ seedex_dns_bootstrap() {
 }
 
 seedex_probe_uplink() {
-	local url="${1:-https://www.gstatic.com/generate_204}"
+	local url="${1:-$SEEDEX_PROBE_URL}"
 	local timeout="${2:-5}"
 	local out code secs
 	out=$(curl -s -o /dev/null --max-time "$timeout" \
@@ -624,27 +610,9 @@ seedex_probe_route_remove() {
 	return 0
 }
 
-seedex_probe_iface() {
-	local iface="$1"
-	local url="${2:-https://www.gstatic.com/generate_204}"
-	local timeout="${3:-5}"
-
-	seedex_iface_is_up "$iface" || return 1
-	seedex_probe_route_install "$iface" || return 1
-
-	local code
-	code=$(curl --interface "$iface" \
-		--max-time "$timeout" \
-		--silent --output /dev/null \
-		--write-out '%{http_code}' \
-		"$url" 2>/dev/null)
-
-	[ "$code" = "204" ]
-}
-
 seedex_probe_iface_rtt() {
 	local iface="$1"
-	local url="${2:-https://www.gstatic.com/generate_204}"
+	local url="${2:-$SEEDEX_PROBE_URL}"
 	local timeout="${3:-5}"
 
 	seedex_iface_is_up "$iface" || return 1
@@ -663,13 +631,6 @@ seedex_probe_iface_rtt() {
 	echo "$secs" | awk '{ printf "%d", $1 * 1000 }'
 }
 
-seedex_fastest_iface() {
-	local best
-	best=$(seedex_probe_all_ifaces "$@" | awk 'NF == 2 && (!found || $2 + 0 < min) { min = $2 + 0; iface = $1; found = 1 } END { print iface }')
-	[ -n "$best" ] || return 1
-	echo "$best"
-}
-
 _probe_all_serial() {
 	local url="$1" timeout="$2" iface rtt
 	for iface in $(seedex_active_ifaces); do
@@ -679,7 +640,7 @@ _probe_all_serial() {
 }
 
 seedex_probe_all_ifaces() {
-	local url="${1:-https://www.gstatic.com/generate_204}"
+	local url="${1:-$SEEDEX_PROBE_URL}"
 	local timeout="${2:-5}"
 	local ifaces iface dir
 

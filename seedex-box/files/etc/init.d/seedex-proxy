@@ -26,6 +26,17 @@ _load_config() {
 	config_get URLTEST_INTERVAL main urltest_interval '1m'
 }
 
+_attach() {
+	seedex_nat_enable "$NFT_TABLE" "$INTERFACE" || return 1
+	seedex_register_iface "$INTERFACE" "proxy" "proxy"
+	log_info "started (tun=$INTERFACE)"
+}
+
+_detach() {
+	seedex_unregister_iface "$INTERFACE"
+	seedex_nat_disable "$NFT_TABLE" "$INTERFACE"
+}
+
 _collect_enabled() {
 	ENABLED_CONFIGS=""
 	ENABLED_NAMES=""
@@ -111,6 +122,7 @@ _assemble_config() {
 		--arg address6 "$ADDRESS6" \
 		--arg level "$LOG_LEVEL" \
 		--arg interval "$URLTEST_INTERVAL" \
+		--arg probe "$SEEDEX_PROBE_URL" \
 		--arg clash "$SEEDEX_CLASH_API" '
 		"auto" as $final
 		| {
@@ -132,7 +144,7 @@ _assemble_config() {
 		    outbounds: (
 		      $outbounds
 		      + [{ type: "urltest", tag: "auto", outbounds: $tags,
-		           url: "https://www.gstatic.com/generate_204", interval: $interval }]
+		           url: $probe, interval: $interval }]
 		      + [{ type: "direct", tag: "direct" }]
 		    ),
 		    route: {
@@ -162,35 +174,6 @@ _assemble_config() {
 	[ -n "$check_err" ] && log_warn "sing-box warnings: $check_err"
 
 	log_debug "config assembled from: $ENABLED_CONFIGS"
-}
-
-_setup_routing() {
-	_cleanup_routing 2>/dev/null
-
-	if ! nft add table inet "$NFT_TABLE" ||
-		! nft flush table inet "$NFT_TABLE" ||
-		! nft add chain inet "$NFT_TABLE" postrouting \
-			'{ type nat hook postrouting priority srcnat; policy accept; }' ||
-		! nft add rule inet "$NFT_TABLE" postrouting \
-			oifname "\"$INTERFACE\"" masquerade; then
-		log_err "nftables setup failed"
-		nft delete table inet "$NFT_TABLE" 2>/dev/null
-		return 1
-	fi
-
-	seedex_fw_add_device "$INTERFACE"
-	seedex_fw_apply
-
-	seedex_register_iface "$INTERFACE" "proxy" "proxy"
-	log_info "started (tun=$INTERFACE)"
-}
-
-_cleanup_routing() {
-	seedex_unregister_iface "$INTERFACE"
-	nft delete table inet "$NFT_TABLE" 2>/dev/null
-	seedex_fw_del_device "$INTERFACE"
-	seedex_fw_apply
-	log_debug "routing cleaned up"
 }
 
 service_triggers() {
@@ -227,17 +210,17 @@ start_service() {
 attach() {
 	_load_config
 	[ -f "$CONFIG_FILE" ] || return 0
-	_setup_routing
+	_attach
 }
 
 detach() {
 	_load_config
-	_cleanup_routing
+	_detach
 }
 
 stop_service() {
 	_load_config
-	_cleanup_routing
+	_detach
 	rm -rf "$PROXY_RUNDIR"
 	log_info "stopped"
 }

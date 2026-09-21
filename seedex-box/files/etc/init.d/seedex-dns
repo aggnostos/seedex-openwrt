@@ -11,12 +11,18 @@ NFT_TABLE="seedex_dns"
 DOH_PROXY=/usr/sbin/https-dns-proxy
 DOH_PORT=5053
 
+_dnsmasq_confdir() {
+	local dir
+	dir="$(grep -s '^conf-dir=' /var/etc/dnsmasq.conf* 2>/dev/null | head -1 | cut -d= -f2)"
+	printf '%s\n' "${dir:-/tmp/dnsmasq.d}"
+}
+
 _load_config() {
 	config_load seedex-dns
 	config_get UPSTREAM main upstream 'encrypted'
 	config_get RESOLVER main resolver 'cloudflare'
 	config_get_bool INTERCEPT main intercept 1
-	DNSMASQ_CONF="$(seedex_dnsmasq_confdir)/seedex-dns.conf"
+	DNSMASQ_CONF="$(_dnsmasq_confdir)/seedex-dns.conf"
 }
 
 _resolver() {
@@ -242,7 +248,9 @@ start_service() {
 	fi
 
 	_write_upstream_ips
-	seedex_dns_bootstrap_refresh
+	if nft list set inet "$SEEDEX_ROUTER_NFT_TABLE" dns_bootstrap 2>/dev/null | grep -qF elements; then
+		seedex_dns_bootstrap 1
+	fi
 	md5sum /etc/config/seedex-dns >"$DNS_RUNDIR/settings.md5"
 	rm -f "${DNSMASQ_CONF%/*}/seedex-router.conf"
 	if _write_dnsmasq_conf; then

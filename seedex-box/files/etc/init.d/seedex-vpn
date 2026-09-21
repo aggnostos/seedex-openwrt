@@ -64,48 +64,6 @@ teardown_interfaces() {
 	done <"$RUNDIR/active_ifaces"
 }
 
-_setup_routing() {
-	local all_ifaces="$1"
-
-	_cleanup_routing 2>/dev/null
-
-	if ! nft add table inet "$NFT_TABLE" ||
-		! nft flush table inet "$NFT_TABLE" ||
-		! nft add chain inet "$NFT_TABLE" postrouting \
-			'{ type nat hook postrouting priority srcnat; policy accept; }'; then
-		log_err "nftables setup failed"
-		nft delete table inet "$NFT_TABLE" 2>/dev/null
-		return 1
-	fi
-
-	local iface
-	for iface in $all_ifaces; do
-		if nft add rule inet "$NFT_TABLE" postrouting \
-			oifname "\"$iface\"" masquerade; then
-			seedex_fw_add_device "$iface"
-		else
-			log_err "nft rule failed for $iface"
-		fi
-	done
-	seedex_fw_apply
-
-	log_debug "routing enabled for:$all_ifaces"
-}
-
-_cleanup_routing() {
-	nft delete table inet "$NFT_TABLE" 2>/dev/null
-
-	if [ -f "$RUNDIR/active_ifaces" ]; then
-		local iface
-		for iface in $(_print_active_interfaces); do
-			seedex_fw_del_device "$iface"
-		done
-		seedex_fw_apply
-	fi
-
-	log_debug "routing cleaned up"
-}
-
 _print_active_interfaces() {
 	[ -f "$RUNDIR/active_ifaces" ] || return 0
 	awk '{ print $1 }' "$RUNDIR/active_ifaces"
@@ -121,7 +79,8 @@ start_service() {
 	seedex_prune_configs seedex-vpn config "$SEEDEX_VPN_DIR"
 
 	if [ -s "$RUNDIR/active_ifaces" ]; then
-		_cleanup_routing
+		# shellcheck disable=SC2046
+		seedex_nat_disable "$NFT_TABLE" $(_print_active_interfaces)
 		teardown_interfaces
 	fi
 
@@ -139,14 +98,16 @@ start_service() {
 	ifaces="${ifaces% }"
 	count=$(echo "$ifaces" | wc -w | tr -d ' ')
 
-	_setup_routing "$ifaces"
+	# shellcheck disable=SC2086
+	seedex_nat_enable "$NFT_TABLE" $ifaces
 
 	log_info "started ($count interface(s): $ifaces)"
 	seedex_start_router
 }
 
 stop_service() {
-	_cleanup_routing
+	# shellcheck disable=SC2046
+	seedex_nat_disable "$NFT_TABLE" $(_print_active_interfaces)
 	teardown_interfaces
 	rm -rf "$RUNDIR"
 	log_info "stopped"

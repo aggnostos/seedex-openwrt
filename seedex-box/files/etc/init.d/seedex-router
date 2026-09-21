@@ -5,6 +5,7 @@ USE_PROCD=1
 TAG="seedex-router"
 . /usr/lib/seedex/common.sh
 . /lib/functions.sh
+seedex_vpn_load
 
 WATCHDOG=/usr/bin/seedex-router-watchdog
 
@@ -25,18 +26,14 @@ ROUTER_RUNDIR="$SEEDEX_RUNDIR/router"
 LISTS_DIR="$ROUTER_RUNDIR/lists"
 IPS_DIR="$ROUTER_RUNDIR/ips"
 
-STATE_FILE="$ROUTER_RUNDIR/active_iface"
+STATE_FILE="$SEEDEX_ROUTER_STATE"
 
 RULE_PRIO=100
 
 _load_config() {
-	config_load seedex-router
-	config_get DEFAULT_ROUTE main default_route 'direct'
+	seedex_router_load
 	FWMARK="$SEEDEX_FWMARK"
 	ROUTE_TABLE="$SEEDEX_ROUTE_TABLE"
-	config_get PROBE_URL main watchdog_url 'https://www.gstatic.com/generate_204'
-	config_get PROBE_TIMEOUT main watchdog_timeout '5'
-	config_get_bool KILL_SWITCH main kill_switch 1
 }
 
 _load_interfaces() {
@@ -45,6 +42,36 @@ _load_interfaces() {
 	if [ -z "$INTERFACES" ]; then
 		log_warn "no interfaces registered"
 	fi
+}
+
+_config_endpoints() {
+	local file="$1" kind="$2" proto
+	[ -f "$file" ] || return 0
+	case "$kind" in
+	vpn)
+		proto=$(seedex_vpn_detect "$file") || return 0
+		"vpn_${proto}_endpoints" "$file"
+		;;
+	singbox)
+		jq -r '.outbounds[]? | select(.server) | .server' "$file" 2>/dev/null
+		;;
+	esac
+}
+
+_link_hosts() {
+	local url host
+	for url in $(uci -q show seedex-link 2>/dev/null | sed -n "s/^seedex-link\.[^.]*\.url='\(.*\)'$/\1/p"); do
+		host="${url#*://}"
+		host="${host%%/*}"
+		case "$host" in
+		\[*\]*)
+			host="${host#[}"
+			host="${host%%]*}"
+			;;
+		*) host="${host%%:*}" ;;
+		esac
+		[ -z "$host" ] || printf '%s\n' "$host"
+	done
 }
 
 _endpoint_hosts() {
@@ -59,14 +86,14 @@ _endpoint_hosts() {
 
 			[ "$enabled" = "1" ] || continue
 			[ -n "$path" ] && [ -f "$path" ] || continue
-			seedex_config_endpoints "$path" "$kind"
+			_config_endpoints "$path" "$kind"
 		done
 	}
 
 	{
-		_endpoints_of seedex-vpn config awg
+		_endpoints_of seedex-vpn config vpn
 		_endpoints_of seedex-proxy config singbox
-		seedex_link_hosts
+		_link_hosts
 	} | sort -u
 }
 
@@ -138,7 +165,7 @@ download_lists() {
 		local tmp="${dest}.new"
 		log_debug "downloading list '$list_url'"
 
-		if curl -fsSL --max-time 30 --max-filesize 10485760 -o "$tmp" "$list_url" 2>/dev/null; then
+		if seedex_list_fetch "$list_url" "$tmp"; then
 			mv "$tmp" "$dest"
 			local count
 			count=$(wc -l <"$dest")
@@ -253,6 +280,14 @@ collect_rule_clients() {
 	done
 }
 
+_tunnels_refresh() {
+	local ifaces
+	nft flush set inet "$NFT_TABLE" tunnels 2>/dev/null
+	ifaces=$(seedex_active_ifaces | tr '\n' ',')
+	ifaces="${ifaces%,}"
+	[ -z "$ifaces" ] || nft add element inet "$NFT_TABLE" tunnels "{ $ifaces }" 2>/dev/null
+}
+
 _load_client_sets() {
 	local t
 	for t in direct overlay; do
@@ -364,7 +399,7 @@ EOF
 
 	_load_ip_sets
 	_load_client_sets
-	seedex_tunnels_refresh
+	_tunnels_refresh
 	log_debug "nftables configured"
 }
 
@@ -381,7 +416,7 @@ _refresh_nft_sets() {
 	done
 	_load_ip_sets
 	_load_client_sets
-	seedex_tunnels_refresh
+	_tunnels_refresh
 }
 
 _load_ip_sets() {
@@ -460,6 +495,25 @@ publish_domains() {
 	log_debug "domains published: $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/overlay") overlay, $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/direct") direct, $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/block") blocked"
 }
 
+_dns_wait() {
+	local seconds="${1:-15}" deadline
+	deadline=$(($(date +%s) + seconds))
+	while :; do
+		[ -z "$(seedex_resolve example.com)" ] || return 0
+		[ "$(date +%s)" -lt "$deadline" ] || break
+		sleep 1
+	done
+	log_warn "dns not available after ${seconds}s, domains may fail to resolve"
+	return 1
+}
+
+_fastest_iface() {
+	local best
+	best=$(seedex_probe_all_ifaces "$@" | awk 'NF == 2 && (!found || $2 + 0 < min) { min = $2 + 0; iface = $1; found = 1 } END { print iface }')
+	[ -n "$best" ] || return 1
+	echo "$best"
+}
+
 setup_policy_routing() {
 	ip rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
 	ip rule add fwmark "$FWMARK" table "$ROUTE_TABLE" priority "$RULE_PRIO"
@@ -470,19 +524,15 @@ setup_policy_routing() {
 
 	local active
 	seedex_dns_bootstrap 1
-	active=$(seedex_fastest_iface "$PROBE_URL" "$PROBE_TIMEOUT")
+	active=$(_fastest_iface "$PROBE_URL" "$PROBE_TIMEOUT")
 
 	if [ -z "$active" ]; then
 		log_warn "no reachable interfaces, routing deferred to watchdog"
 		return 0
 	fi
 
-	ip route replace default dev "$active" table "$ROUTE_TABLE"
-	seedex_overlay_route6 "$active"
+	seedex_overlay_route "$active"
 	seedex_dns_bootstrap 0
-
-	mkdir -p "$(dirname "$STATE_FILE")"
-	echo "$active" >"$STATE_FILE"
 
 	log_debug "policy routing via $active"
 }
@@ -508,7 +558,7 @@ start_service() {
 	log_debug "starting (default_route=$DEFAULT_ROUTE, interfaces: $INTERFACES)"
 	mkdir -p "$ROUTER_RUNDIR" "$IPS_DIR"
 
-	seedex_dns_wait
+	_dns_wait
 
 	download_lists
 	collect_rule_ips "overlay"
