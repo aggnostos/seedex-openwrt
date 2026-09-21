@@ -57,9 +57,6 @@ sdx apply
 Run `sdx`:
 
 ```
-$ sdx
-seedex v0.1.0
-
 Uplink:
     [*] Internet             118 ms
     [*] Overlay (anytls)     286 ms
