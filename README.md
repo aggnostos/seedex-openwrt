@@ -16,13 +16,26 @@
 
 Seedex is a secure network privacy layer for OpenWrt routers: VPN and Proxy, convenient routing, secured DNS, managed with a single command or the LuCI app.
 
+> [!WARNING]
+> Seedex is under active development. Bugs are likely. Commands, settings, and behavior may change between versions. Read the release notes before you update.
+
+## Features
+
+- **One command for everything** — `sdx` installs, configures, diagnoses. Every service answers the same `sdx <service> <action>` shape, so nothing has to be memorised twice.
+- **Any server you already have** — import a WireGuard or AmneziaWG `.conf`, a sing-box `.json`, or a `vless://`-style share link. A whole directory of configs works as well as a single file.
+- **Automatic failover** — a watchdog probes every tunnel, keeping traffic on the fastest live one. A kill switch holds tunnel traffic back while none is up, so nothing leaks to the provider in the clear.
+- **Routing you can read** — rules match domains, addresses, subnets, downloaded lists, or individual devices by MAC or IP. Each match goes through the tunnel, straight to the provider, or nowhere at all.
+- **Ready-made lists** — point a rule at a URL with one domain or address per line, refreshed on the schedule you set. Hosts-format files are accepted as they are.
+- **Encrypted DNS for the whole network** — DNS-over-HTTPS through the tunnel, with interception for devices that insist on resolving by themselves.
+- **LuCI app** — every part of `sdx` has a page in the router's web interface, pending changes included.
+- **Paired with your own server** — linked to [seedex-agent](https://github.com/aggnostos/seedex-agent), the router pulls new configs by itself and runs the server's `sdx` remotely.
+- **Plain OpenWrt underneath** — UCI config, procd services, nftables sets, the system log. Nothing to learn beyond what the router already does.
+- **noarch packages** — every OpenWrt target works, with `apk` on 25.x and `opkg` on 24.10.
+
 ## Requirements
 
 - A router running OpenWrt 24.10.2 or later with outbound internet access.
 - A server running [seedex-agent](https://github.com/aggnostos/seedex-agent), WireGuard, AmneziaWG, or sing-box.
-
-> [!NOTE]
-> The packages are `noarch`. Every OpenWrt target works, with `apk` on 25.x and `opkg` on 24.10.
 
 ## Installation
 
@@ -34,7 +47,7 @@ On the router, run the installer as root:
 wget -O - https://feed.seedex.net/install.sh | sh
 ```
 
-The installer adds the Seedex package feed and installs `seedex-box` with the `sdx` command and `luci-app-seedex` for LuCI. Nothing is started until you apply the first config. To skip LuCI, run the installer with `| sh -s -- --no-luci`.
+The installer adds the Seedex package feed, then installs `seedex-box` with the `sdx` command plus `luci-app-seedex` for LuCI. Nothing is started until you apply the first config. To skip LuCI, run the installer with `| sh -s -- --no-luci`.
 
 ### 2. Connect the server
 
@@ -45,13 +58,14 @@ sdx link add agent https://203.0.113.5:8447 <token> <fingerprint>
 sdx apply
 ```
 
-You can also import native WG, AWG, or sing-box configuration files, or a proxy URI:
+You can also import native configuration files, a proxy URI, or a subscription:
 
 ```sh
-sdx import awg.conf
-sdx import wg.conf
-sdx import sing-box.json
-sdx import 'vless://...'
+sdx import awg.conf         # AWG
+sdx import wg.conf          # WG
+sdx import sing-box.json    # sing-box
+sdx import 'vless://...'    # Supported proxy URI
+sdx import 'https://...'    # Subscription: proxy URIs, plain or base64
 sdx apply
 ```
 
@@ -71,18 +85,18 @@ Uplink:
     Kill switch:  on
     Watchdog:     every 30s
     Rules:
-    [*] ads                block    list
-    [*] tv                 direct   1 client
+        [*] ads                block    list
+        [*] tv                 direct   1 client
 
 [*] VPN:
     Configs:
-    [ ] awg         362 ms
-    [ ] wg          324 ms
+        [ ] awg         362 ms
+        [ ] wg          324 ms
 
 [*] Proxy:
     Configs:
-    [*] anytls      286 ms
-    [ ] vless
+        [*] anytls      286 ms
+        [ ] vless
 
 [*] DNS:
     Upstream:   encrypted
@@ -90,7 +104,7 @@ Uplink:
     Intercept:  on
 
 Link:
-    [*] admin        https://203.0.113.5:8447         2 vpn, 2 proxy, 4 min ago
+    [*] agent        https://203.0.113.5:8447         2 vpn, 2 proxy, 4 min ago
 ```
 
 The **Uplink** section shows the tunnel that carries the traffic. In LuCI, the same information is under **Services > Seedex**.
@@ -114,4 +128,4 @@ Bug reports, suggestions, and pull requests are welcome.
 
 ## License
 
-GPL-2.0.
+GPL-2.0. The Seedex name and logo are covered by the [trademark policy](https://docs.seedex.net/trademark), not by the license.
