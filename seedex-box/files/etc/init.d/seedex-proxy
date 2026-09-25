@@ -8,6 +8,7 @@ TAG="seedex-proxy"
 
 PROXY_RUNDIR="$SEEDEX_RUNDIR/proxy"
 CONFIG_FILE="$PROXY_RUNDIR/config.json"
+IFACE_MAP="$PROXY_RUNDIR/ifaces"
 
 NFT_TABLE="seedex_proxy"
 
@@ -19,22 +20,54 @@ EXTRA_COMMANDS="attach detach"
 
 _load_config() {
 	config_load seedex-proxy
-	INTERFACE="$SEEDEX_PROXY_IFACE"
-	ADDRESS='172.19.0.1/30'
-	ADDRESS6='fdfe:dcba:9876::1/126'
 	config_get LOG_LEVEL main log_level 'warn'
 	config_get URLTEST_INTERVAL main urltest_interval '1m'
 }
 
+_ifaces() {
+	awk '{ print $1 }' "$IFACE_MAP" 2>/dev/null
+}
+
+_name_of() {
+	awk -v d="$1" '$1 == d { print $2; exit }' "$IFACE_MAP" 2>/dev/null
+}
+
+_sync_nat() {
+	local iface live="" dead=""
+	for iface in $(_ifaces); do
+		if seedex_iface_is_up "$iface"; then
+			live="$live $iface"
+		else
+			dead="$dead $iface"
+		fi
+	done
+	# shellcheck disable=SC2086
+	[ -z "$dead" ] || seedex_fw_forget $dead
+	# shellcheck disable=SC2086
+	[ -z "$live" ] || seedex_nat_enable "$NFT_TABLE" $live
+}
+
 _attach() {
-	seedex_nat_enable "$NFT_TABLE" "$INTERFACE" || return 1
-	seedex_register_iface "$INTERFACE" "proxy" "proxy"
-	log_info "started (tun=$INTERFACE)"
+	local dev="$1" name
+	name=$(_name_of "$dev")
+	[ -n "$name" ] || return 0
+	seedex_register_iface "$dev" "proxy" "$name"
+	_sync_nat
+	log_info "config '$name' up on $dev"
 }
 
 _detach() {
-	seedex_unregister_iface "$INTERFACE"
-	seedex_nat_disable "$NFT_TABLE" "$INTERFACE"
+	local dev="$1" iface
+	if [ -n "$dev" ]; then
+		seedex_unregister_iface "$dev"
+		_sync_nat
+		return 0
+	fi
+	for iface in $(_ifaces); do
+		seedex_unregister_iface "$iface"
+	done
+	# shellcheck disable=SC2046,SC2086
+	seedex_nat_disable "$NFT_TABLE" $(_ifaces)
 }
 
 _collect_enabled() {
@@ -95,10 +128,9 @@ _assemble_config() {
 		return 1
 	}
 
-	printf '%s' "$outbounds" | jq -r '.[] | "\(._src) \(.tag)"' |
-		awk -v names="$ENABLED_NAMES" 'BEGIN { split(names, n, " ") } { print $2, n[$1 + 1] }' \
-			>"$PROXY_RUNDIR/tags"
-	outbounds=$(printf '%s' "$outbounds" | jq 'map(del(._src))')
+	printf '%s' "$outbounds" | jq -r '.[] | "\(._src)"' | sort -un |
+		awk -v prefix="$SEEDEX_PROXY_IFACE_PREFIX" -v names="$ENABLED_NAMES" \
+			'BEGIN { split(names, n, " ") } { print prefix $1, n[$1 + 1] }' >"$IFACE_MAP"
 
 	local server_cidrs
 	server_cidrs=$(printf '%s' "$outbounds" |
@@ -107,54 +139,48 @@ _assemble_config() {
 		sort -u |
 		awk 'BEGIN { printf "[" } { printf "%s\"%s/32\"", sep, $0; sep = "," } END { printf "]" }')
 
-	local tags
-	tags=$(printf '%s' "$outbounds" | jq -c '
-		[ .[] | .detour // empty ] as $legs
-		| [ .[] | select(.tag as $t | ($legs | index($t)) == null) | .tag ]
-	')
-
 	jq -n \
 		--argjson outbounds "$outbounds" \
-		--argjson tags "$tags" \
 		--argjson cidrs "$server_cidrs" \
-		--arg iface "$INTERFACE" \
-		--arg address "$ADDRESS" \
-		--arg address6 "$ADDRESS6" \
+		--arg prefix "$SEEDEX_PROXY_IFACE_PREFIX" \
 		--arg level "$LOG_LEVEL" \
 		--arg interval "$URLTEST_INTERVAL" \
-		--arg probe "$SEEDEX_PROBE_URL" \
-		--arg clash "$SEEDEX_CLASH_API" '
-		"auto" as $final
+		--arg probe "$SEEDEX_PROBE_URL" '
+		([ $outbounds[] | ._src ] | unique) as $srcs
+		| [ $srcs[] as $s
+		    | [ $outbounds[] | select(._src == $s) ] as $group
+		    | [ $group[] | .detour // empty ] as $legs
+		    | { n: ($s | tostring),
+		        iface: ($prefix + ($s | tostring)),
+		        tun: ("tun-" + ($s | tostring)),
+		        entries: [ $group[] | select(.tag as $t | ($legs | index($t)) == null) | .tag ] } ]
+		| map(. + { out: (if (.entries | length) > 1 then "auto-" + .n else .entries[0] end) }) as $groups
 		| {
 		    log: { level: $level, timestamp: true },
-		    experimental: { clash_api: { external_controller: $clash } },
 		    dns: {
-		      servers: [
-		        { type: "https", tag: "remote-dns", server: "1.1.1.1",
-		          path: "/dns-query", domain_resolver: "local-dns", detour: $final },
-		        { type: "udp", tag: "local-dns", server: "1.0.0.1" }
-		      ],
-		      final: "remote-dns",
+		      servers: [ { type: "udp", tag: "local-dns", server: "127.0.0.1" } ],
+		      final: "local-dns",
 		      strategy: "prefer_ipv4"
 		    },
-		    inbounds: [
-		      { type: "tun", tag: "tun-in", interface_name: $iface,
-		        address: [$address, $address6], auto_route: false, stack: "gvisor" }
-		    ],
+		    inbounds: [ $groups[]
+		      | { type: "tun", tag: .tun, interface_name: .iface,
+		          address: [ "172.19." + .n + ".1/30", "fdfe:dcba:9876:" + .n + "::1/126" ],
+		          auto_route: false, stack: "gvisor" } ],
 		    outbounds: (
-		      $outbounds
-		      + [{ type: "urltest", tag: "auto", outbounds: $tags,
-		           url: $probe, interval: $interval }]
-		      + [{ type: "direct", tag: "direct" }]
+		      [ $outbounds[] | del(._src) ]
+		      + [ $groups[] | select((.entries | length) > 1)
+		          | { type: "urltest", tag: .out, outbounds: .entries, url: $probe, interval: $interval } ]
+		      + [ { type: "direct", tag: "direct" } ]
 		    ),
 		    route: {
-		      rules: [
-		        { inbound: "tun-in", action: "sniff" },
-		        { protocol: "dns", action: "hijack-dns" },
-		        { ip_is_private: true, outbound: "direct" },
-		        { ip_cidr: ($cidrs + ["1.0.0.1/32"]), outbound: "direct" }
-		      ],
-		      final: $final,
+		      rules: (
+		        [ { inbound: [ $groups[].tun ], action: "sniff" },
+		          { protocol: "dns", action: "hijack-dns" },
+		          { ip_is_private: true, outbound: "direct" },
+		          { ip_cidr: $cidrs, outbound: "direct" } ]
+		        + [ $groups[] | { inbound: [ .tun ], outbound: .out } ]
+		      ),
+		      final: "direct",
 		      auto_detect_interface: true,
 		      default_domain_resolver: "local-dns"
 		    }
@@ -210,17 +236,17 @@ start_service() {
 attach() {
 	_load_config
 	[ -f "$CONFIG_FILE" ] || return 0
-	_attach
+	_attach "$1"
 }
 
 detach() {
 	_load_config
-	_detach
+	_detach "$1"
 }
 
 stop_service() {
 	_load_config
-	_detach
+	_detach ""
 	rm -rf "$PROXY_RUNDIR"
 	log_info "stopped"
 }

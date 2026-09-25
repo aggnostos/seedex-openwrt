@@ -254,45 +254,19 @@ seedex_register_iface() {
 }
 
 seedex_iface_name() {
-	local name
-	name=$(awk 'FNR == 1 { print $2 }' "$SEEDEX_IFACE_DIR/$1" 2>/dev/null)
-	[ "$name" = proxy ] || {
-		printf '%s\n' "$name"
-		return 0
-	}
-	name=$(seedex_proxy_probe | awk -F'\t' '$3 == 1 { print $1; exit }')
-	printf '%s\n' "${name:-proxy}"
+	awk 'FNR == 1 { print $2 }' "$SEEDEX_IFACE_DIR/$1" 2>/dev/null
 }
 
-SEEDEX_PROXY_IFACE="proxy0"
-
-SEEDEX_CLASH_API="127.0.0.1:9090"
-
-seedex_proxy_probe() {
-	local map="$SEEDEX_RUNDIR/proxy/tags"
-	[ -s "$map" ] || return 1
-	curl -s -m 2 "http://$SEEDEX_CLASH_API/proxies" 2>/dev/null |
-		jq -r --rawfile map "$map" '
-			($map | split("\n") | map(select(length > 0) | split(" ") | { key: .[0], value: .[1] })
-			  | from_entries) as $names
-			| (.proxies.auto.now // "") as $now
-			| [ .proxies | to_entries[]
-			    | select($names[.key] != null)
-			    | { name: $names[.key], active: (.key == $now),
-			        delay: ((.value.history // []) | last | .delay // 0) } ]
-			| group_by(.name)
-			| map({ name: .[0].name, active: (map(.active) | any),
-			        delay: ((map(.delay) | map(select(. > 0)) | min) // 0) })
-			| .[]
-			| [ .name, (if .delay > 0 then "up" else "unreachable" end),
-			    (if .active then "1" else "0" end), (if .delay > 0 then (.delay | tostring) else "" end) ]
-			| @tsv'
-}
+SEEDEX_PROXY_IFACE_PREFIX="proxy"
 
 seedex_iface_for_config() {
 	local owner="$1" name="$2"
 	seedex_all_ifaces | awk -v owner="$owner" -v name="$name" '
-		$2 == owner && (owner == "proxy" || $3 == name) { print $1; exit }'
+		$2 == owner && $3 == name { print $1; exit }'
+}
+
+seedex_iface_for_name() {
+	seedex_all_ifaces | awk -v name="$1" '$3 == name { print $1; exit }'
 }
 
 seedex_unregister_iface() {
@@ -372,6 +346,14 @@ seedex_nat_enable() {
 	log_debug "nat enabled for: $*"
 }
 
+seedex_fw_forget() {
+	local iface
+	for iface in "$@"; do
+		_seedex_fw_del_device "$iface"
+	done
+	_seedex_fw_apply
+}
+
 seedex_nat_disable() {
 	local table="$1" iface
 	shift
@@ -420,9 +402,8 @@ seedex_iface_rtt() {
 }
 
 seedex_config_states() {
-	local config="$1" type="$2" owner="$3" idx=0 name enabled iface active rtt state probe="" line is_active
+	local config="$1" type="$2" owner="$3" idx=0 name enabled iface active rtt state is_active
 	active=$(seedex_active_iface)
-	[ "$owner" != proxy ] || probe=$(seedex_proxy_probe)
 	while uci -q get "${config}.@${type}[$idx]" >/dev/null 2>&1; do
 		name=$(uci -q get "${config}.@${type}[$idx].name")
 		enabled=$(uci -q get "${config}.@${type}[$idx].enabled")
@@ -432,23 +413,12 @@ seedex_config_states() {
 		[ "$enabled" = 1 ] && iface=$(seedex_iface_for_config "$owner" "$name")
 		is_active=0
 		[ -n "$iface" ] && [ "$iface" = "$active" ] && is_active=1
-		rtt=""
-		line=""
-		[ -z "$probe" ] || line=$(printf '%s\n' "$probe" | awk -F'\t' -v n="$name" '$1 == n { print; exit }')
 		if [ "$enabled" != 1 ]; then
 			state=disabled
+			rtt=""
 		elif [ -z "$iface" ]; then
 			state=down
-		elif [ -n "$line" ]; then
-			state=$(printf '%s' "$line" | cut -f2)
-			if [ "$(printf '%s' "$line" | cut -f3)" = 1 ]; then
-				rtt=$(seedex_iface_rtt "$iface")
-				[ -n "$rtt" ] || state=unreachable
-			else
-				is_active=0
-			fi
-		elif [ -n "$probe" ]; then
-			state=down
+			rtt=""
 		else
 			rtt=$(seedex_iface_rtt "$iface")
 			state=unreachable

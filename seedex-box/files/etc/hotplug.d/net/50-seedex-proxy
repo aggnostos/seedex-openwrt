@@ -2,9 +2,12 @@
 
 . /usr/lib/seedex/common.sh
 
-[ "$DEVICENAME" = "$SEEDEX_PROXY_IFACE" ] || exit 0
+case "$DEVICENAME" in
+"$SEEDEX_PROXY_IFACE_PREFIX"[0-9]*) ;;
+*) exit 0 ;;
+esac
 
 case "$ACTION" in
-add) /etc/init.d/seedex-proxy attach ;;
-remove) /etc/init.d/seedex-proxy detach ;;
+add) /etc/init.d/seedex-proxy attach "$DEVICENAME" ;;
+remove) /etc/init.d/seedex-proxy detach "$DEVICENAME" ;;
 esac
