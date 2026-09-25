@@ -5,7 +5,7 @@ TAG="seedex"
 
 SERVICES="seedex-router seedex-vpn seedex-proxy seedex-dns"
 SEEDEX_SERVICES="router vpn proxy dns"
-SEEDEX_SVC_REQUIRED="config show add update enable disable remove"
+SEEDEX_SVC_REQUIRED="config show add update enable disable reserve unreserve remove"
 
 _lib() {
 	local path="/usr/lib/seedex/${1}.sh"

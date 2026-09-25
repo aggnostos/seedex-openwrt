@@ -59,6 +59,7 @@ return baseclass.extend({
 				var rows = api.sections(self.values, 'config').map(function(s) {
 					var name = self.entryName(s);
 					var enabled = s.enabled == '1';
+					var reserved = s.reserved == '1';
 					var cells = [ api.mark(enabled), name ];
 					entrySettings.forEach(function(k) {
 						cells.push(s[k.key] || '—');
@@ -71,6 +72,11 @@ return baseclass.extend({
 						' ',
 						api.button(enabled ? _('Disable') : _('Enable'), 'cbi-button-neutral', function() {
 							return api.run(svc, enabled ? 'disable' : 'enable', [ name ])
+								.catch(api.fail).then(refresh);
+						}, self),
+						' ',
+						api.button(reserved ? _('Unreserve') : _('Reserve'), 'cbi-button-neutral', function() {
+							return api.run(svc, reserved ? 'unreserve' : 'reserve', [ name ])
 								.catch(api.fail).then(refresh);
 						}, self),
 						' ',

@@ -6,6 +6,9 @@
 # /usr/lib/seedex/vpn/) and whether the config is enabled. Every enabled
 # config gets its own tunnel; the router's watchdog picks between them by RTT.
 #
+# `option reserved '1'` keeps a tunnel out of that choice, leaving it to the
+# router rules that name it in `iface=`. `sdx vpn reserve` sets it.
+#
 #   config config 'nl1_awg_router'
 #       option name      'nl1-awg-router'
 #       option proto     'awg'

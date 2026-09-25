@@ -5,7 +5,7 @@ SVC_NAME="vpn"
 SVC_SECTION="config"
 SVC_STORE_DIR="$SEEDEX_VPN_DIR"
 
-SVC_ACTIONS="start stop restart show enable disable remove changes apply revert export reset"
+SVC_ACTIONS="start stop restart show enable disable reserve unreserve remove changes apply revert export reset"
 
 _vpn_entry() {
 	local subcmd="$1"
@@ -79,6 +79,14 @@ _vpn_entry() {
 		_section_set_enabled seedex-vpn config config "vpn disable" 0 "$@"
 		;;
 
+	reserve)
+		_section_set_reserved seedex-vpn config config "vpn" 1 "$@"
+		;;
+
+	unreserve)
+		_section_set_reserved seedex-vpn config config "vpn" 0 "$@"
+		;;
+
 	remove)
 		_section_remove seedex-vpn config config "vpn remove" "$@"
 		;;
@@ -141,6 +149,8 @@ restart	Restart the service
 show [#|name ...]	List entries, or show some	List configs, or show the named ones with their files
 enable [#|name ...]	Enable the service or entries	Enable the service, or the named configs
 disable [#|name ...]	Disable the service or entries	Disable the service (also at boot), or the named configs
+reserve <#|name ...>	Reserve for pinned rules	Keep the tunnel out of the overlay: only rules with iface= use it
+unreserve <#|name ...>	Return to the overlay
 remove <#|name ...>	Remove entries	Remove configs and stage their files for removal
 changes	Show pending UCI changes
 apply	Save pending changes and restart
@@ -162,7 +172,7 @@ svc_dispatch() {
 			_vpn_entry "$action" "$@"
 		fi
 		;;
-	show | remove) _vpn_entry "$action" "$@" ;;
+	show | remove | reserve | unreserve) _vpn_entry "$action" "$@" ;;
 	start) svc_start ;;
 	status) svc_status ;;
 	stop) svc_stop ;;

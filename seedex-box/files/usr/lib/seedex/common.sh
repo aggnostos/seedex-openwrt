@@ -250,8 +250,8 @@ _seedex_iface_write() {
 }
 
 seedex_register_iface() {
-	local iface="$1" owner="$2" name="$3"
-	_seedex_iface_write "$iface" "$owner $name"
+	local iface="$1" owner="$2" name="$3" reserved="${4:-0}"
+	_seedex_iface_write "$iface" "$owner $name $reserved"
 	nft add element inet seedex_router tunnels "{ $iface }" 2>/dev/null
 }
 
@@ -373,7 +373,7 @@ seedex_all_ifaces() {
 	awk 'FNR == 1 {
 		n = FILENAME
 		sub(/.*\//, "", n)
-		print n, $1, $2
+		print n, $1, $2, ($3 == "1" ? 1 : 0)
 	}' "$@" | sort
 }
 
@@ -404,11 +404,12 @@ seedex_iface_rtt() {
 }
 
 seedex_config_states() {
-	local config="$1" type="$2" owner="$3" idx=0 name enabled iface active rtt state is_active
+	local config="$1" type="$2" owner="$3" idx=0 name enabled iface active rtt state is_active reserved
 	active=$(seedex_active_iface)
 	while uci -q get "${config}.@${type}[$idx]" >/dev/null 2>&1; do
 		name=$(uci -q get "${config}.@${type}[$idx].name")
 		enabled=$(uci -q get "${config}.@${type}[$idx].enabled")
+		reserved=$(uci -q get "${config}.@${type}[$idx].reserved")
 		name="${name:-#$idx}"
 		idx=$((idx + 1))
 		iface=""
@@ -426,12 +427,12 @@ seedex_config_states() {
 			state=unreachable
 			[ -z "$rtt" ] || state=up
 		fi
-		printf '%s\t%s\t%s\t%s\n' "$name" "$state" "$is_active" "$rtt"
+		printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$state" "$is_active" "$rtt" "${reserved:-0}"
 	done
 }
 
 seedex_status_configs() {
-	local config="$1" type="$2" owner="$3" tab name state active rtt shown states
+	local config="$1" type="$2" owner="$3" tab name state active rtt reserved shown states
 	states=$(seedex_config_states "$config" "$type" "$owner")
 	[ -n "$states" ] || {
 		printf '  %-10s none\n' "Configs:"
@@ -439,13 +440,14 @@ seedex_status_configs() {
 	}
 	echo "  Configs:"
 	tab=$(printf '\t')
-	while IFS="$tab" read -r name state active rtt; do
+	while IFS="$tab" read -r name state active rtt reserved; do
 		[ -n "$name" ] || continue
 		case "$state" in
 		up) shown="${rtt:+$rtt ms}" ;;
 		down) shown="" ;;
 		*) shown="$state" ;;
 		esac
+		[ "$reserved" != 1 ] || shown="${shown:+$shown, }reserved"
 		if [ -n "$shown" ]; then
 			printf '    %s %-18s %s\n' "$(seedex_mark "$active")" "$name" "$shown"
 		else
@@ -458,6 +460,22 @@ STATES
 
 seedex_active_ifaces() {
 	seedex_all_ifaces | awk '{print $1}'
+}
+
+seedex_overlay_ifaces() {
+	seedex_all_ifaces | awk '$4 != 1 { print $1 }'
+}
+
+seedex_iface_reserved() {
+	seedex_all_ifaces | awk -v i="$1" '$1 == i && $4 == 1 { found = 1 } END { exit !found }'
+}
+
+seedex_best_iface() {
+	local allow
+	allow=" $(seedex_overlay_ifaces | tr '\n' ' ')"
+	awk -v allow="$allow" '
+		NF == 2 && index(allow, " " $1 " ") && (!found || $2 + 0 < min) { min = $2 + 0; line = $0; found = 1 }
+		END { if (found) print line }'
 }
 
 SEEDEX_PIN_MARK_BASE=256

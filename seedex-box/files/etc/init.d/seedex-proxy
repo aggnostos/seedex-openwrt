@@ -32,6 +32,10 @@ _name_of() {
 	awk -v d="$1" '$1 == d { print $2; exit }' "$IFACE_MAP" 2>/dev/null
 }
 
+_reserved_of() {
+	awk -v d="$1" '$1 == d { print ($3 == "1" ? 1 : 0); exit }' "$IFACE_MAP" 2>/dev/null
+}
+
 _sync_nat() {
 	local iface live="" dead=""
 	for iface in $(_ifaces); do
@@ -51,7 +55,7 @@ _attach() {
 	local dev="$1" name
 	name=$(_name_of "$dev")
 	[ -n "$name" ] || return 0
-	seedex_register_iface "$dev" "proxy" "$name"
+	seedex_register_iface "$dev" "proxy" "$name" "$(_reserved_of "$dev")"
 	_sync_nat
 	log_info "config '$name' up on $dev"
 }
@@ -73,14 +77,16 @@ _detach() {
 _collect_enabled() {
 	ENABLED_CONFIGS=""
 	ENABLED_NAMES=""
+	ENABLED_RESERVED=""
 
 	_collect_one() {
-		local section="$1" enabled config name
+		local section="$1" enabled config name reserved
 		config_get_bool enabled "$section" enabled 0
 		[ "$enabled" -eq 1 ] || return 0
 
 		config_get config "$section" config ''
 		config_get name "$section" name "$section"
+		config_get_bool reserved "$section" reserved 0
 		[ -n "$config" ] || return 0
 		[ -f "$config" ] || {
 			log_warn "config '$name': '$config' not found, skipping"
@@ -88,11 +94,13 @@ _collect_enabled() {
 		}
 		ENABLED_CONFIGS="$ENABLED_CONFIGS $config"
 		ENABLED_NAMES="$ENABLED_NAMES $name"
+		ENABLED_RESERVED="$ENABLED_RESERVED $reserved"
 	}
 
 	config_foreach _collect_one config
 	ENABLED_CONFIGS="${ENABLED_CONFIGS# }"
 	ENABLED_NAMES="${ENABLED_NAMES# }"
+	ENABLED_RESERVED="${ENABLED_RESERVED# }"
 }
 
 _assemble_config() {
@@ -129,8 +137,9 @@ _assemble_config() {
 	}
 
 	printf '%s' "$outbounds" | jq -r '.[] | "\(._src)"' | sort -un |
-		awk -v prefix="$SEEDEX_PROXY_IFACE_PREFIX" -v names="$ENABLED_NAMES" \
-			'BEGIN { split(names, n, " ") } { print prefix $1, n[$1 + 1] }' >"$IFACE_MAP"
+		awk -v prefix="$SEEDEX_PROXY_IFACE_PREFIX" -v names="$ENABLED_NAMES" -v reserved="$ENABLED_RESERVED" \
+			'BEGIN { split(names, n, " "); split(reserved, r, " ") }
+			{ print prefix $1, n[$1 + 1], (r[$1 + 1] == "1" ? 1 : 0) }' >"$IFACE_MAP"
 
 	local server_cidrs
 	server_cidrs=$(printf '%s' "$outbounds" |

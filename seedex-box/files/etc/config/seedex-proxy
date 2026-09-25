@@ -7,9 +7,15 @@ config proxy 'main'
 # one file per protocol, so a protocol is enabled or disabled by toggling its
 # section rather than by editing a document.
 #
-# At startup the box takes the outbounds from every enabled file, wraps them
-# in a urltest selector and its own tun/dns/route frame. Protocol details stay
-# entirely inside the files.
+# At startup the box gives every enabled file its own tun interface — proxy0,
+# proxy1 and so on — inside one sing-box instance, and routes that interface
+# to the file's outbound. The router's watchdog then picks between them by
+# RTT, exactly as it does with the VPN tunnels. A file holding several
+# outbounds chooses among them by urltest on its own interface. Protocol
+# details stay entirely inside the files.
+#
+# `option reserved '1'` keeps a tunnel out of the watchdog's choice, leaving
+# it to the router rules that name it in `iface=`. `sdx proxy reserve` sets it.
 #
 #   config config 'a1b2c3d4_vless_0'
 #       option name    'VLESS-Reality'

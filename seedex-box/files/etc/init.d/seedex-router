@@ -640,7 +640,7 @@ _dns_wait() {
 
 _fastest_iface() {
 	local best
-	best=$(seedex_probe_all_ifaces "$@" | awk 'NF == 2 && (!found || $2 + 0 < min) { min = $2 + 0; iface = $1; found = 1 } END { print iface }')
+	best=$(seedex_probe_all_ifaces "$@" | seedex_best_iface | awk '{ print $1 }')
 	[ -n "$best" ] || return 1
 	echo "$best"
 }

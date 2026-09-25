@@ -6,7 +6,7 @@ SVC_SECTION="config"
 SVC_CONFIG_KEYS="log_level urltest_interval"
 SVC_STORE_DIR="$SEEDEX_PROXY_DIR"
 
-SVC_ACTIONS="start stop restart show enable disable remove config changes apply revert export reset"
+SVC_ACTIONS="start stop restart show enable disable reserve unreserve remove config changes apply revert export reset"
 
 _proxy_entry() {
 	local subcmd="$1"
@@ -73,6 +73,14 @@ _proxy_entry() {
 		_section_set_enabled seedex-proxy config config "proxy disable" 0 "$@"
 		;;
 
+	reserve)
+		_section_set_reserved seedex-proxy config config "proxy" 1 "$@"
+		;;
+
+	unreserve)
+		_section_set_reserved seedex-proxy config config "proxy" 0 "$@"
+		;;
+
 	remove)
 		_section_remove seedex-proxy config config "proxy remove" "$@"
 		;;
@@ -133,6 +141,8 @@ restart	Restart the service
 show [#|name ...]	List entries, or show some	List configs, or show the named ones with their files
 enable [#|name ...]	Enable the service or entries	Enable the service, or the named configs
 disable [#|name ...]	Disable the service or entries	Disable the service (also at boot), or the named configs
+reserve <#|name ...>	Reserve for pinned rules	Keep the tunnel out of the overlay: only rules with iface= use it
+unreserve <#|name ...>	Return to the overlay
 remove <#|name ...>	Remove entries	Remove configs and stage their files for removal
 config	Manage service settings	Manage service settings: show, get <key>, set k=v ...
 changes	Show pending UCI changes
@@ -155,7 +165,7 @@ svc_dispatch() {
 			_proxy_entry "$action" "$@"
 		fi
 		;;
-	show | remove) _proxy_entry "$action" "$@" ;;
+	show | remove | reserve | unreserve) _proxy_entry "$action" "$@" ;;
 	start) svc_start ;;
 	status) svc_status ;;
 	stop) svc_stop ;;

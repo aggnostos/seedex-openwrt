@@ -42,7 +42,8 @@ SWITCH_MIN_GAIN_MS=20
 pick_active() {
 	local results="$1" current best best_rtt current_rtt
 	current=$(seedex_active_iface)
-	best=$(echo "$results" | awk 'NF == 2 && (!found || $2 + 0 < min) { min = $2 + 0; line = $0; found = 1 } END { print line }')
+	! seedex_iface_reserved "$current" || current=""
+	best=$(echo "$results" | seedex_best_iface)
 	[ -n "$best" ] || return 0
 	best_rtt="${best#* }"
 	best="${best%% *}"

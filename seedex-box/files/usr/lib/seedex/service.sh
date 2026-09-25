@@ -106,6 +106,26 @@ settable: $allowed"
 	echo "$label $(_ref_label "$ref") updated ($changes change(s))"
 }
 
+_section_set_reserved() {
+	local config="$1" type="$2" label="$3" cmd="$4" value="$5"
+	shift 5
+	local paths path ref word
+	paths=$(_sections_at "$config" "$type" "$label" "$cmd" "$@") || exit $?
+	[ "$value" = "1" ] && word="reserved for pinned rules" || word="back in the overlay"
+	for ref in "$@"; do
+		path="${paths%%
+*}"
+		paths="${paths#*
+}"
+		if [ "$value" = "1" ]; then
+			uci set "${path}.reserved=1"
+		else
+			uci -q delete "${path}.reserved"
+		fi
+		echo "$label $(_ref_label "$ref") $word"
+	done
+}
+
 _section_remove() {
 	local config="$1" type="$2" label="$3" cmd="$4"
 	shift 4

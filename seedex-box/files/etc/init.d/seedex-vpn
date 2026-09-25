@@ -13,7 +13,7 @@ NFT_TABLE="seedex_vpn"
 
 setup_interface() {
 	local section="$1"
-	local enabled config name proto interface
+	local enabled config name proto interface reserved
 
 	config_get_bool enabled "$section" enabled 0
 	[ "$enabled" -eq 1 ] || return 0
@@ -21,6 +21,7 @@ setup_interface() {
 	config_get config "$section" config ''
 	config_get name "$section" name "$section"
 	config_get proto "$section" proto ''
+	config_get_bool reserved "$section" reserved 0
 
 	[ -n "$config" ] || {
 		log_err "config '$name': missing config path"
@@ -50,7 +51,7 @@ setup_interface() {
 	"vpn_${proto}_up" "$interface" "$config" "$name" || return 1
 
 	echo "$interface $proto" >>"$RUNDIR/active_ifaces"
-	seedex_register_iface "$interface" "vpn" "$name"
+	seedex_register_iface "$interface" "vpn" "$name" "$reserved"
 }
 
 teardown_interfaces() {
