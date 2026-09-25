@@ -6,7 +6,7 @@
 # nothing is imported; a single '*' imports everything the server offers.
 #
 #   config link 'agent1'
-#       option url         'https://203.0.113.5:8447'
+#       option url         'https://203.0.113.5:8282'
 #       option token       '...'
 #       option fingerprint 'sha256//...'
 #       list   config      'router'

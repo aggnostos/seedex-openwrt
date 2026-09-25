@@ -54,7 +54,7 @@ The installer adds the Seedex package feed, then installs `seedex-box` with the 
 If you use [seedex-agent](https://github.com/aggnostos/seedex-agent), paste the output of the `sdx link add <router>` command, pick the configs to import in the menu that opens, and then apply them:
 
 ```sh
-sdx link add agent https://203.0.113.5:8447 <token> <fingerprint>
+sdx link add agent https://203.0.113.5:8282 <token> <fingerprint>
 sdx apply
 ```
 
@@ -104,7 +104,7 @@ Uplink:
     Intercept:  on
 
 Link:
-    [*] agent        https://203.0.113.5:8447         2 vpn, 2 proxy, 4 min ago
+    [*] agent        https://203.0.113.5:8282         2 vpn, 2 proxy, 4 min ago
 ```
 
 The **Uplink** section shows the tunnel that carries the traffic. In LuCI, the same information is under **Services > Seedex**.

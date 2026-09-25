@@ -84,7 +84,7 @@ return view.extend({
 	openAdd: function(refresh) {
 		var self = this;
 		var name = api.input('', 'agent1');
-		var url = api.input('', 'https://203.0.113.5:8447');
+		var url = api.input('', 'https://203.0.113.5:8282');
 		var token = api.input('');
 		var fp = api.input('', 'sha256//...');
 
