@@ -27,6 +27,7 @@ LISTS_DIR="$ROUTER_RUNDIR/lists"
 IPS_DIR="$ROUTER_RUNDIR/ips"
 
 STATE_FILE="$SEEDEX_ROUTER_STATE"
+PINS_FILE="$SEEDEX_PINS_FILE"
 
 RULE_PRIO=100
 
@@ -110,6 +111,64 @@ _collect_endpoint_ips() {
 	done | sort -u
 }
 
+_pin_index() {
+	local name="$1" iface="$2" n
+	n=$(awk -v v="$name" '$3 == v { print $1; exit }' "$PINS_FILE" 2>/dev/null)
+	[ -z "$n" ] || {
+		echo "$n"
+		return 0
+	}
+	n=$(($(wc -l <"$PINS_FILE" 2>/dev/null || echo 0) + 1))
+	printf '%s %s %s\n' "$n" "$iface" "$name" >>"$PINS_FILE"
+	echo "$n"
+}
+
+_collect_pin() {
+	local section="$1" enabled iface_name iface
+	config_get_bool enabled "$section" enabled 0
+	[ "$enabled" -eq 1 ] || return 0
+	config_get iface_name "$section" iface ''
+	[ -n "$iface_name" ] || return 0
+	iface=$(seedex_iface_for_name "$iface_name")
+	[ -n "$iface" ] || {
+		log_warn "rule '$section': no tunnel named '$iface_name' is up, the rule follows the default route"
+		return 0
+	}
+	_pin_index "$iface_name" "$iface" >/dev/null
+}
+
+collect_pins() {
+	seedex_pin_clear
+	mkdir -p "$(dirname "$PINS_FILE")"
+	: >"$PINS_FILE"
+	config_foreach _collect_pin rule
+}
+
+_pins() {
+	awk '{ print "pin" $1 }' "$PINS_FILE" 2>/dev/null
+}
+
+_rule_bucket() {
+	local section="$1" iface_name type n
+	config_get iface_name "$section" iface ''
+	if [ -n "$iface_name" ]; then
+		n=$(awk -v v="$iface_name" '$3 == v { print $1; exit }' "$PINS_FILE" 2>/dev/null)
+		[ -z "$n" ] || {
+			echo "pin$n"
+			return 0
+		}
+	fi
+	config_get type "$section" type ''
+	echo "$type"
+}
+
+_bucket_active() {
+	case "$1" in
+	pin*) return 0 ;;
+	esac
+	_type_active "$1"
+}
+
 COLLECTED=""
 _collect_item() {
 	COLLECTED="${COLLECTED} $1"
@@ -152,9 +211,10 @@ download_lists() {
 		config_get_bool enabled "$section" enabled 0
 		[ "$enabled" -eq 1 ] || return 0
 
-		config_get type "$section" type ''
-		if ! _type_active "$type"; then
-			log_debug "rule '$section': type '$type' is inactive with default_route=$DEFAULT_ROUTE, skipped"
+		local bucket
+		bucket=$(_rule_bucket "$section")
+		if ! _bucket_active "$bucket"; then
+			log_debug "rule '$section': type '$bucket' is inactive with default_route=$DEFAULT_ROUTE, skipped"
 			return 0
 		fi
 
@@ -202,7 +262,7 @@ _collect_rule_ips() {
 	config_get_bool enabled "$section" enabled 0
 	[ "$enabled" -eq 1 ] || return 0
 
-	config_get type "$section" type ''
+	type=$(_rule_bucket "$section")
 	[ "$type" = "$RULE_TYPE_FILTER" ] || return 0
 
 	COLLECTED=""
@@ -231,7 +291,7 @@ collect_rule_ips() {
 	: >"${RULE_IPS_FILE}6"
 	: >"$RULE_IPS_FILE.all"
 
-	_type_active "$rule_type" || return 0
+	_bucket_active "$rule_type" || return 0
 
 	RULE_TYPE_FILTER="$rule_type"
 	config_foreach _collect_rule_ips rule
@@ -248,7 +308,7 @@ _collect_rule_clients() {
 	config_get_bool enabled "$section" enabled 0
 	[ "$enabled" -eq 1 ] || return 0
 
-	config_get type "$section" type ''
+	type=$(_rule_bucket "$section")
 	[ "$type" = "$RULE_TYPE_FILTER" ] || return 0
 
 	COLLECTED=""
@@ -288,12 +348,73 @@ _tunnels_refresh() {
 	[ -z "$ifaces" ] || nft add element inet "$NFT_TABLE" tunnels "{ $ifaces }" 2>/dev/null
 }
 
+_pin_sets_present() {
+	local t
+	for t in $(_pins); do
+		nft list set inet "$NFT_TABLE" "${t}_ips" >/dev/null 2>&1 || return 1
+	done
+	return 0
+}
+
+_collect_buckets() {
+	local t
+	collect_rule_ips overlay
+	collect_rule_ips direct
+	collect_rule_ips block
+	collect_rule_clients overlay
+	collect_rule_clients direct
+	for t in $(_pins); do
+		collect_rule_ips "$t"
+		collect_rule_clients "$t"
+	done
+}
+
 _load_client_sets() {
 	local t
 	for t in direct overlay; do
 		load_nft_set "client_${t}_mac" "${IPS_DIR}/client_${t}.mac"
 		load_nft_set "client_${t}_ip" "${IPS_DIR}/client_${t}.ip"
 		load_nft_set "client_${t}_ip6" "${IPS_DIR}/client_${t}.ip6"
+	done
+	for t in $(_pins); do
+		load_nft_set "${t}_cmac" "${IPS_DIR}/client_${t}.mac"
+		load_nft_set "${t}_cip" "${IPS_DIR}/client_${t}.ip"
+		load_nft_set "${t}_cip6" "${IPS_DIR}/client_${t}.ip6"
+	done
+}
+
+_pin_sets() {
+	local t
+	for t in $(_pins); do
+		cat <<EOS
+  set ${t}_ips { type ipv4_addr; flags interval; auto-merge; }
+  set ${t}_ips6 { type ipv6_addr; flags interval; auto-merge; }
+  set ${t}_dyn { type ipv4_addr; flags interval; auto-merge; }
+  set ${t}_dyn6 { type ipv6_addr; flags interval; auto-merge; }
+  set ${t}_cmac { type ether_addr; }
+  set ${t}_cip { type ipv4_addr; flags interval; auto-merge; }
+  set ${t}_cip6 { type ipv6_addr; flags interval; auto-merge; }
+EOS
+	done
+}
+
+_pin_rules() {
+	local where="$1" n mark t
+	# shellcheck disable=SC2013
+	for n in $(awk '{ print $1 }' "$PINS_FILE" 2>/dev/null); do
+		t="pin$n"
+		mark=$(seedex_pin_mark "$n")
+		[ "$where" = prerouting ] && cat <<EOS
+    ether saddr @${t}_cmac meta mark set ${mark} accept
+    ip saddr @${t}_cip meta mark set ${mark} accept
+    ip6 saddr @${t}_cip6 meta mark set ${mark} accept
+EOS
+		cat <<EOS
+    ip daddr @${t}_ips meta mark set ${mark} accept
+    ip daddr @${t}_dyn meta mark set ${mark} accept
+    ip6 daddr @${t}_ips6 meta mark set ${mark} accept
+    ip6 daddr @${t}_dyn6 meta mark set ${mark} accept
+EOS
 	done
 }
 
@@ -322,8 +443,8 @@ setup_nftables() {
 	if [ "$KILL_SWITCH" -eq 1 ]; then
 		kill_chain="chain killswitch {
     type filter hook postrouting priority filter; policy accept;
-    meta mark ${FWMARK} oifname @tunnels accept
-    meta mark ${FWMARK} drop
+    meta mark and ${SEEDEX_PIN_MARK_MASK} == ${FWMARK} oifname @tunnels accept
+    meta mark and ${SEEDEX_PIN_MARK_MASK} == ${FWMARK} drop
   }"
 		log_debug "kill switch armed"
 	fi
@@ -352,6 +473,7 @@ table inet ${NFT_TABLE} {
   set client_overlay_ip { type ipv4_addr; flags interval; auto-merge; }
   set client_direct_ip6 { type ipv6_addr; flags interval; auto-merge; }
   set client_overlay_ip6 { type ipv6_addr; flags interval; auto-merge; }
+$(_pin_sets)
   chain prerouting {
     type filter hook prerouting priority mangle; policy accept;
     ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } accept
@@ -360,6 +482,7 @@ table inet ${NFT_TABLE} {
     ip6 daddr @block_ips6 drop
     ip daddr @endpoint_ips accept
     ip6 daddr @endpoint_ips6 accept
+$(_pin_rules prerouting)
     ether saddr @client_direct_mac accept
     ether saddr @client_overlay_mac meta mark set ${FWMARK} accept
     ip saddr @client_direct_ip accept
@@ -382,6 +505,7 @@ table inet ${NFT_TABLE} {
     ip6 daddr @block_ips6 drop
     ip daddr @endpoint_ips accept
     ip6 daddr @endpoint_ips6 accept
+$(_pin_rules output)
     ip daddr @${NFT_DIRECT_SET} accept
     ip daddr @${NFT_DIRECT_DYN} accept
     ip6 daddr @${NFT_DIRECT_SET6} accept
@@ -407,11 +531,12 @@ _refresh_nft_sets() {
 	_collect_endpoint_ips 4 >"${IPS_DIR}/endpoints.ips"
 	_collect_endpoint_ips 6 >"${IPS_DIR}/endpoints.ips6"
 
-	local set
+	local set t
 	for set in endpoint_ips "$NFT_OVERLAY_SET" "$NFT_DIRECT_SET" block_ips \
 		endpoint_ips6 "$NFT_OVERLAY_SET6" "$NFT_DIRECT_SET6" block_ips6 \
 		client_direct_mac client_overlay_mac client_direct_ip client_overlay_ip \
-		client_direct_ip6 client_overlay_ip6; do
+		client_direct_ip6 client_overlay_ip6 \
+		$(for t in $(_pins); do printf '%s_ips %s_ips6 %s_cmac %s_cip %s_cip6 ' "$t" "$t" "$t" "$t" "$t"; done); do
 		nft flush set inet "$NFT_TABLE" "$set" 2>/dev/null
 	done
 	_load_ip_sets
@@ -420,6 +545,11 @@ _refresh_nft_sets() {
 }
 
 _load_ip_sets() {
+	local t
+	for t in $(_pins); do
+		load_nft_set "${t}_ips" "${IPS_DIR}/${t}.ips"
+		load_nft_set "${t}_ips6" "${IPS_DIR}/${t}.ips6"
+	done
 	load_nft_set "endpoint_ips" "${IPS_DIR}/endpoints.ips"
 	load_nft_set "endpoint_ips6" "${IPS_DIR}/endpoints.ips6"
 	load_nft_set "$NFT_OVERLAY_SET" "${IPS_DIR}/overlay.ips"
@@ -442,7 +572,7 @@ _rule_domains() {
 	config_get_bool enabled "$section" enabled 0
 	[ "$enabled" -eq 1 ] || return 0
 
-	config_get type "$section" type ''
+	type=$(_rule_bucket "$section")
 	[ "$type" = "$RULE_TYPE_FILTER" ] || return 0
 
 	local list_path=""
@@ -481,9 +611,10 @@ _rule_domains() {
 publish_domains() {
 	local rule_type dest
 	mkdir -p "$SEEDEX_ROUTER_DOMAINS_DIR"
-	for rule_type in overlay direct block; do
+	rm -f "$SEEDEX_ROUTER_DOMAINS_DIR"/pin*
+	for rule_type in overlay direct block $(_pins); do
 		dest="$SEEDEX_ROUTER_DOMAINS_DIR/$rule_type"
-		if _type_active "$rule_type"; then
+		if _bucket_active "$rule_type"; then
 			RULE_TYPE_FILTER="$rule_type"
 			config_foreach _rule_domains rule | sort -u >"$dest.new"
 		else
@@ -522,6 +653,8 @@ setup_policy_routing() {
 	ip -6 route replace unreachable default table "$ROUTE_TABLE"
 	log_debug "fwmark=$FWMARK table=$ROUTE_TABLE priority=$RULE_PRIO"
 
+	seedex_pin_sync
+
 	local active
 	seedex_dns_bootstrap 1
 	active=$(_fastest_iface "$PROBE_URL" "$PROBE_TIMEOUT")
@@ -538,6 +671,7 @@ setup_policy_routing() {
 }
 
 teardown_policy_routing() {
+	seedex_pin_clear
 	ip rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
 	ip route flush table "$ROUTE_TABLE" 2>/dev/null
 	ip -6 rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
@@ -560,12 +694,9 @@ start_service() {
 
 	_dns_wait
 
+	collect_pins
 	download_lists
-	collect_rule_ips "overlay"
-	collect_rule_ips "direct"
-	collect_rule_ips "block"
-	collect_rule_clients "overlay"
-	collect_rule_clients "direct"
+	_collect_buckets
 	setup_nftables || return 1
 	publish_domains
 	setup_policy_routing
@@ -607,12 +738,18 @@ reapply() {
 	fi
 
 	log_info "reapplying rules"
-	collect_rule_ips "overlay"
-	collect_rule_ips "direct"
-	collect_rule_ips "block"
-	collect_rule_clients "overlay"
-	collect_rule_clients "direct"
+	collect_pins
+	if ! _pin_sets_present; then
+		log_info "pinned tunnels changed, rebuilding the rule set"
+		setup_nftables || return 1
+		publish_domains
+		seedex_pin_sync
+		log_info "reapplied"
+		return 0
+	fi
+	_collect_buckets
 	_refresh_nft_sets
 	publish_domains
+	seedex_pin_sync
 	log_info "reapplied"
 }

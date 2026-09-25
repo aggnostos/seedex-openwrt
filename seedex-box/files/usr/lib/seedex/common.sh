@@ -238,6 +238,8 @@ SEEDEX_PROBE_URL='https://www.gstatic.com/generate_204'
 
 SEEDEX_ROUTER_STATE="$SEEDEX_RUNDIR/router/active_iface"
 
+SEEDEX_PINS_FILE="$SEEDEX_RUNDIR/router/pins"
+
 SEEDEX_IFACE_DIR="$SEEDEX_RUNDIR/ifaces.d"
 
 _seedex_iface_write() {
@@ -458,6 +460,50 @@ seedex_active_ifaces() {
 	seedex_all_ifaces | awk '{print $1}'
 }
 
+SEEDEX_PIN_MARK_BASE=256
+SEEDEX_PIN_MARK_MASK='0xff00'
+SEEDEX_PIN_PRIO=99
+
+seedex_pin_mark() {
+	printf '0x%x\n' $((SEEDEX_PIN_MARK_BASE + $1))
+}
+
+_seedex_pin_rules() {
+	local op="$1" mark="$2" table="$3"
+	ip rule del fwmark "$mark" priority "$SEEDEX_PIN_PRIO" 2>/dev/null
+	ip -6 rule del fwmark "$mark" priority "$SEEDEX_PIN_PRIO" 2>/dev/null
+	ip rule del fwmark "$mark" priority "$((SEEDEX_PIN_PRIO + 2))" 2>/dev/null
+	ip -6 rule del fwmark "$mark" priority "$((SEEDEX_PIN_PRIO + 2))" 2>/dev/null
+	[ "$op" = add ] || return 0
+	ip rule add fwmark "$mark" table "$table" priority "$SEEDEX_PIN_PRIO" 2>/dev/null
+	ip -6 rule add fwmark "$mark" table "$table" priority "$SEEDEX_PIN_PRIO" 2>/dev/null
+	ip rule add fwmark "$mark" table "$SEEDEX_ROUTE_TABLE" priority "$((SEEDEX_PIN_PRIO + 2))" 2>/dev/null
+	ip -6 rule add fwmark "$mark" table "$SEEDEX_ROUTE_TABLE" priority "$((SEEDEX_PIN_PRIO + 2))" 2>/dev/null
+}
+
+seedex_pin_sync() {
+	local n iface name mark table
+	[ -f "$SEEDEX_PINS_FILE" ] || return 0
+	while read -r n iface name; do
+		[ -n "$iface" ] || continue
+		mark=$(seedex_pin_mark "$n")
+		if table=$(seedex_iface_table "$iface"); then
+			_seedex_pin_rules add "$mark" "$table"
+		else
+			_seedex_pin_rules del "$mark" ""
+		fi
+	done <"$SEEDEX_PINS_FILE"
+}
+
+seedex_pin_clear() {
+	local n iface name
+	[ -f "$SEEDEX_PINS_FILE" ] || return 0
+	while read -r n iface name; do
+		[ -n "$n" ] || continue
+		_seedex_pin_rules del "$(seedex_pin_mark "$n")" ""
+	done <"$SEEDEX_PINS_FILE"
+}
+
 SEEDEX_PROBE_TABLE_BASE=100000
 
 SEEDEX_PROBE_PRIO=998
@@ -568,10 +614,17 @@ _seedex_probe_table() {
 	echo $((SEEDEX_PROBE_TABLE_BASE + idx))
 }
 
+seedex_iface_table() { _seedex_probe_table "$1"; }
+
 seedex_probe_route_install() {
 	local iface="$1" table
 	table=$(_seedex_probe_table "$iface") || return 1
 	ip route replace default dev "$iface" table "$table" 2>/dev/null
+	if seedex_iface_has_v6 "$iface"; then
+		ip -6 route replace default dev "$iface" table "$table" 2>/dev/null
+	else
+		ip -6 route flush table "$table" 2>/dev/null
+	fi
 	ip rule del oif "$iface" table "$table" priority $SEEDEX_PROBE_PRIO 2>/dev/null
 	ip rule add oif "$iface" table "$table" priority $SEEDEX_PROBE_PRIO 2>/dev/null
 	return 0
@@ -585,6 +638,7 @@ seedex_probe_route_remove() {
 	done
 	table=$(_seedex_probe_table "$iface") || return 0
 	ip route flush table "$table" 2>/dev/null
+	ip -6 route flush table "$table" 2>/dev/null
 	return 0
 }
 

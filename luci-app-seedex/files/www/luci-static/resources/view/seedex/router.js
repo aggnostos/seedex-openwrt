@@ -125,6 +125,7 @@ return view.extend({
 		var listUrl = api.input(s.list_url, 'https://example.org/domains.txt');
 		var listPath = api.input(s.list_path, '/etc/seedex/lists/custom.txt');
 		var listRefresh = api.input(s.list_refresh, '12h');
+		var iface = api.input(s.iface, 'nl1-awg-router');
 
 		var save = function() {
 			var n = name.value.trim();
@@ -132,13 +133,13 @@ return view.extend({
 				return Promise.reject(new Error(_('Name is required')));
 			var args = [];
 			if (isNew) {
-				args.push(n, 'type=' + type.value);
+				args.push(n, 'type=' + type.value, 'iface=' + iface.value.trim());
 			}
 			else {
 				args.push(oldName);
 				if (n !== oldName)
 					args.push('name=' + n);
-				args.push('type=' + type.value);
+				args.push('iface=' + iface.value.trim(), 'type=' + type.value);
 			}
 			[ [ macs, 'client_mac' ], [ clientIps, 'client_ip' ], [ domains, 'domain' ], [ ips, 'ip' ] ].forEach(function(f) {
 				var list = splitList(f[0].value);
@@ -161,6 +162,7 @@ return view.extend({
 		ui.showModal(isNew ? _('Add rule') : oldName, [
 			api.field(_('Name'), name),
 			api.field(_('Type'), type),
+			api.field(_('Tunnel'), iface, _('Name of a VPN or proxy config; empty means the fastest tunnel')),
 			api.field(_('Client MACs'), macs, _('Whole-client rule: all traffic from these devices; cannot be combined with destinations')),
 			api.field(_('Client IPs'), clientIps, _('Devices or subnets by address, e.g. a guest VLAN; same rule as MACs')),
 			api.field(_('Domains'), domains, _('One per line; subdomains are matched too')),

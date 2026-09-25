@@ -102,6 +102,12 @@ _render_dnsmasq_conf() {
 		;;
 	esac
 	[ "$INTERCEPT" -eq 0 ] || echo "server=/use-application-dns.net/"
+	local f pin
+	for f in "$SEEDEX_ROUTER_DOMAINS_DIR"/pin*; do
+		[ -f "$f" ] || continue
+		pin="${f##*/}"
+		_domains "$pin" | _pack_nftset "${pin}_dyn" "$max"
+	done
 	_domains overlay | _pack_nftset "$SEEDEX_ROUTER_OVERLAY_DYN" "$max"
 	_domains direct | _pack_nftset "$SEEDEX_ROUTER_DIRECT_DYN" "$max"
 	_domains block | _pack_local "$max"

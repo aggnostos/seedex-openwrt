@@ -35,6 +35,14 @@ _check_client_ip() {
 	esac
 }
 
+_check_iface() {
+	local name="$1" svc
+	for svc in vpn proxy; do
+		_find_section_by_name "seedex-$svc" config "$name" >/dev/null 2>&1 && return 0
+	done
+	die "no vpn or proxy config named '$name' — see 'sdx vpn show' and 'sdx proxy show'"
+}
+
 _rule_kind() {
 	local path="$1"
 	if [ -n "$(uci -q get "${path}.client_mac")$(uci -q get "${path}.client_ip")" ]; then
@@ -101,13 +109,14 @@ _router_entry() {
 		fi
 		local idx="$1"
 		if [ -z "$idx" ]; then
-			printf "    %-4s %-20s %-5s %s\n" "#" "NAME" "TYPE" "SOURCE"
+			printf "    %-4s %-20s %-7s %s\n" "#" "NAME" "TYPE" "SOURCE"
 
 			idx=0
 			while uci -q get "seedex-router.@rule[$idx]" >/dev/null 2>&1; do
-				local name type enabled list_url list_path
+				local name type enabled list_url list_path pin
 				name=$(uci -q get "seedex-router.@rule[$idx].name")
 				type=$(uci -q get "seedex-router.@rule[$idx].type")
+				pin=$(uci -q get "seedex-router.@rule[$idx].iface")
 				enabled=$(uci -q get "seedex-router.@rule[$idx].enabled")
 				list_url=$(uci -q get "seedex-router.@rule[$idx].list_url")
 				list_path=$(uci -q get "seedex-router.@rule[$idx].list_path")
@@ -143,7 +152,8 @@ _router_entry() {
 				fi
 				[ -z "$source" ] && source="(empty)"
 
-				printf "%s %-4s %-20s %-5s %s\n" "$state" "$idx" "${name:--}" "$type" "$source"
+				[ -z "$pin" ] || type="$pin"
+				printf "%s %-4s %-20s %-7s %s\n" "$state" "$idx" "${name:--}" "$type" "$source"
 				idx=$((idx + 1))
 			done
 			return 0
@@ -170,16 +180,17 @@ _router_entry() {
 
 	add)
 		local name="$1"
-		[ -n "$name" ] || usage "sdx router add <name> type=direct|overlay [...]"
+		[ -n "$name" ] || usage "sdx router add <name> type=direct|overlay|block [iface=<config>] [...]"
 		_reject_ctrl "$name"
 		shift
 
-		local type="" list_url="" list_path="" list_refresh=""
+		local type="" iface_name="" list_url="" list_path="" list_refresh=""
 		local add_domains="" add_ips="" add_macs="" add_clients="" v
 
 		for arg in "$@"; do
 			case "$arg" in
 			type=*) type="${arg#*=}" ;;
+			iface=*) iface_name="${arg#*=}" ;;
 			domain=*) add_domains="${add_domains} $(printf '%s' "${arg#*=}" | tr ',' ' ')" ;;
 			ip=*) add_ips="${add_ips} $(printf '%s' "${arg#*=}" | tr ',' ' ')" ;;
 			client_mac=*)
@@ -206,6 +217,11 @@ _router_entry() {
 		[ -z "$add_macs$add_clients" ] || [ -z "$add_domains$add_ips$list_url$list_path" ] ||
 			die "a rule matches either clients (client_mac=, client_ip=) or destinations (domain=, ip=, list_*), not both"
 
+		[ -z "$iface_name" ] || {
+			_check_iface "$iface_name"
+			[ -z "$type" ] || [ "$type" = overlay ] || die "iface= pins the rule to a tunnel, so its type is overlay"
+			type=overlay
+		}
 		[ -n "$type" ] || die "type is required: direct, overlay or block"
 		case "$type" in
 		direct | overlay | block) ;;
@@ -228,6 +244,7 @@ use 'sdx router update' to change it, or pick another name"
 		uci set "seedex-router.${sid}.name=${name}"
 		uci set "seedex-router.${sid}.type=${type}"
 		uci set "seedex-router.${sid}.enabled=1"
+		_uci_set_if "seedex-router.${sid}" iface "$iface_name"
 		_uci_set_if "seedex-router.${sid}" list_url "$list_url"
 		_uci_set_if "seedex-router.${sid}" list_path "$list_path"
 		_uci_set_if "seedex-router.${sid}" list_refresh "$list_refresh"
@@ -276,6 +293,22 @@ use 'sdx router update' to change it, or pick another name"
 				echo "  name → ${arg#*=}"
 				changes=$((changes + 1))
 				;;
+			iface=*)
+				local newiface="${arg#*=}"
+				if [ -z "$newiface" ]; then
+					uci -q delete "${path}.iface"
+					echo "  iface → (none)"
+				else
+					_check_iface "$newiface"
+					uci set "${path}.iface=${newiface}"
+					echo "  iface → $newiface"
+					[ "$(uci -q get "${path}.type")" = overlay ] || {
+						uci set "${path}.type=overlay"
+						echo "  type → overlay"
+					}
+				fi
+				changes=$((changes + 1))
+				;;
 			type=*)
 				local newtype="${arg#*=}"
 				case "$newtype" in
@@ -286,6 +319,8 @@ use 'sdx router update' to change it, or pick another name"
 				esac
 				[ "$newtype" != block ] || [ -z "$(uci -q get "${path}.client_mac")$(uci -q get "${path}.client_ip")" ] ||
 					die "block rules match destinations, not clients"
+				[ "$newtype" = overlay ] || [ -z "$(uci -q get "${path}.iface")" ] ||
+					die "the rule is pinned to '$(uci -q get "${path}.iface")' — clear it with iface= first"
 				uci set "${path}.type=${newtype}"
 				echo "  type → $newtype"
 				changes=$((changes + 1))
@@ -520,8 +555,8 @@ start	Start the service
 stop	Stop the service
 restart	Restart the service
 show [#|name ...]	List entries, or show some	List rules, or show the named ones with all their fields
-add <name> k=v ...	Add a rule	Add a rule: type=direct|overlay|block, then domain=a,b ip= list_url= list_path= or client_mac= client_ip=
-update <#|name> k=v ...	Modify an entry	Modify a rule: type= name= list_*=; lists: domain=a,b replaces, add-domain= adds, del-domain= removes (same for ip, client_mac, client_ip)
+add <name> k=v ...	Add a rule	Add a rule: type=direct|overlay|block, then domain=a,b ip= list_url= list_path= or client_mac= client_ip=; iface=<config> sends it through that tunnel
+update <#|name> k=v ...	Modify an entry	Modify a rule: type= name= iface= list_*=; lists: domain=a,b replaces, add-domain= adds, del-domain= removes (same for ip, client_mac, client_ip)
 enable [#|name ...]	Enable the service or entries	Enable the service, or the named rules
 disable [#|name ...]	Disable the service or entries	Disable the service (also at boot), or the named rules
 remove <#|name ...>	Remove entries	Remove rules

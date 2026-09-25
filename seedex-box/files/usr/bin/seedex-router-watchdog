@@ -157,6 +157,8 @@ trap cleanup TERM INT
 
 mkdir -p "$(dirname "$STATE_FILE")" "$LISTS_DIR" "$REFRESH_DIR"
 
+IFACES_SEEN=$(seedex_all_ifaces | md5sum)
+
 log_info "watchdog started (interval=${WATCHDOG_INTERVAL}s)"
 
 write_connectivity "" "$(seedex_active_iface)" 0
@@ -167,6 +169,14 @@ wait $!
 while true; do
 	seedex_router_load
 
+	ifaces_now=$(seedex_all_ifaces | md5sum)
+	if [ "$ifaces_now" != "$IFACES_SEEN" ]; then
+		IFACES_SEEN="$ifaces_now"
+		log_info "tunnels changed, reapplying rules"
+		/etc/init.d/seedex-router reapply
+	fi
+
+	seedex_pin_sync
 	results=$(seedex_probe_all_ifaces "$PROBE_URL" "$PROBE_TIMEOUT")
 	best=$(pick_active "$results")
 

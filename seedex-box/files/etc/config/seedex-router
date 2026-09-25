@@ -48,6 +48,18 @@ config router 'main'
 #       option list_url     'https://example.org/domains.txt'
 #       option list_refresh '12h'
 #
+# 'iface' pins a rule to one tunnel by the name of its VPN or proxy config,
+# instead of letting the watchdog pick the fastest one. The rule type is then
+# 'overlay'. While that tunnel is down its traffic follows the overlay's
+# default route, and the kill switch still applies.
+#
+#   config rule 'work'
+#       option name    'work'
+#       option type    'overlay'
+#       option iface   'ger1-awg-router'
+#       option enabled '1'
+#       list domain    'intranet.example.com'
+#
 # Client rules: all traffic from these devices, matched by MAC address or by
 # IP address / subnet (a guest VLAN, a client behind another router). They
 # take precedence over destination rules, so a device pinned to 'direct'
