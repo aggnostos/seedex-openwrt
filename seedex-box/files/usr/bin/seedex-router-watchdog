@@ -177,7 +177,6 @@ while true; do
 		/etc/init.d/seedex-router reapply
 	fi
 
-	seedex_pin_sync
 	results=$(seedex_probe_all_ifaces "$PROBE_URL" "$PROBE_TIMEOUT")
 	best=$(pick_active "$results")
 
@@ -190,6 +189,7 @@ while true; do
 	fi
 
 	write_connectivity "$results" "$best" "$(seedex_probe_uplink "$PROBE_URL" "$PROBE_TIMEOUT")"
+	seedex_pin_sync
 	check_list_refresh
 
 	sleep "$WATCHDOG_INTERVAL" &
