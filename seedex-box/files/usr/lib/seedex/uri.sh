@@ -110,6 +110,16 @@ _uri_bool() {
 	esac
 }
 
+# xhttp (ex-splithttp) and kcp are xray transports; sing-box has no equivalent.
+_uri_transport_reason() {
+	case "$1" in
+	xhttp | splithttp | kcp | mkcp)
+		echo "transport '$1' is an xray extension that sing-box cannot speak"
+		;;
+	*) echo "unsupported transport '$1'" ;;
+	esac
+}
+
 _uri_transport() {
 	local type="$1" path="$2" host="$3" service="$4"
 	case "$type" in
@@ -124,6 +134,13 @@ _uri_transport() {
 	http | h2)
 		jq -cn --arg path "${path:-/}" --arg host "$host" \
 			'{type: "http", path: $path} + (if $host != "" then {host: ($host | split(","))} else {} end)'
+		;;
+	httpupgrade)
+		jq -cn --arg path "${path:-/}" --arg host "$host" \
+			'{type: "httpupgrade", path: $path} + (if $host != "" then {host: $host} else {} end)'
+		;;
+	quic)
+		jq -cn '{type: "quic"}'
 		;;
 	*) return 1 ;;
 	esac
@@ -215,7 +232,7 @@ seedex_uri_outbound() {
 		*) _uri_fail "unsupported security '$sec'" || return 1 ;;
 		esac
 		transport=$(_uri_transport "$type" "$path" "$host" "$service") ||
-			_uri_fail "unsupported transport '$type'" || return 1
+			_uri_fail "$(_uri_transport_reason "$type")" || return 1
 		ob=$(jq -cn --arg s "$URI_HOST" --argjson p "$URI_PORT" --arg uuid "$(_uri_decode "$URI_USERINFO")" --arg flow "$flow" '
 			{type: "vless", server: $s, server_port: $p, uuid: $uuid, packet_encoding: "xudp"}
 			+ (if $flow != "" then {flow: $flow} else {} end)')
@@ -229,7 +246,7 @@ seedex_uri_outbound() {
 		*) _uri_fail "unsupported security '$sec'" || return 1 ;;
 		esac
 		transport=$(_uri_transport "$type" "$path" "$host" "$service") ||
-			_uri_fail "unsupported transport '$type'" || return 1
+			_uri_fail "$(_uri_transport_reason "$type")" || return 1
 		ob=$(jq -cn --arg s "$URI_HOST" --argjson p "$URI_PORT" --arg pw "$(_uri_decode "$URI_USERINFO")" \
 			'{type: "trojan", server: $s, server_port: $p, password: $pw}')
 		;;
@@ -268,7 +285,7 @@ seedex_uri_outbound() {
 			tls=$(_uri_tls true "$sni" "$(printf '%s' "$v" | jq -r .fp)" \
 				"$(_uri_bool "$(printf '%s' "$v" | jq -r .insecure)")" "$(printf '%s' "$v" | jq -r .alpn)" "" "")
 		transport=$(_uri_transport "$type" "$path" "$host" "$path") ||
-			_uri_fail "unsupported transport '$type'" || return 1
+			_uri_fail "$(_uri_transport_reason "$type")" || return 1
 		ob=$(printf '%s' "$v" | jq -c --arg s "$URI_HOST" --argjson p "$URI_PORT" \
 			'{type: "vmess", server: $s, server_port: $p, uuid: .id, security: .scy, alter_id: (.aid | tonumber)}')
 		;;
