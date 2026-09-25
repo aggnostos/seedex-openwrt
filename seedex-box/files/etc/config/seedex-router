@@ -50,8 +50,10 @@ config router 'main'
 #
 # 'iface' pins a rule to one tunnel by the name of its VPN or proxy config,
 # instead of letting the watchdog pick the fastest one. The rule type is then
-# 'overlay'. While that tunnel is down its traffic follows the overlay's
-# default route, and the kill switch still applies.
+# 'overlay'. While the watchdog finds that tunnel unreachable, the rule's
+# traffic follows the overlay's default route, and the kill switch still
+# applies. The tunnel stays in the watchdog's choice for everything else
+# unless 'sdx vpn reserve' or 'sdx proxy reserve' takes it out.
 #
 #   config rule 'work'
 #       option name    'work'

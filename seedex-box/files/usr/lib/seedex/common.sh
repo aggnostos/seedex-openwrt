@@ -499,13 +499,18 @@ _seedex_pin_rules() {
 	ip -6 rule add fwmark "$mark" table "$SEEDEX_ROUTE_TABLE" priority "$((SEEDEX_PIN_PRIO + 2))" 2>/dev/null
 }
 
+_seedex_iface_carries() {
+	[ -f "$SEEDEX_RUNDIR/router/connectivity.state" ] || return 0
+	[ -n "$(seedex_iface_rtt "$1")" ]
+}
+
 seedex_pin_sync() {
 	local n iface name mark table
 	[ -f "$SEEDEX_PINS_FILE" ] || return 0
 	while read -r n iface name; do
 		[ -n "$iface" ] || continue
 		mark=$(seedex_pin_mark "$n")
-		if table=$(seedex_iface_table "$iface"); then
+		if _seedex_iface_carries "$iface" && table=$(seedex_iface_table "$iface"); then
 			_seedex_pin_rules add "$mark" "$table"
 		else
 			_seedex_pin_rules del "$mark" ""
