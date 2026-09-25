@@ -209,6 +209,19 @@ _export_configs() {
 	[ "$emitted" -gt 0 ] || warn "no $label configs to export"
 }
 
+# Answers whether an import may replace the config that already carries this
+# name: only with --force, never behind a link's back.
+_import_may_replace() {
+	local config="$1" sid="$2" name="$3" svc="$4" owner
+	if [ "${SEEDEX_IMPORT_FORCE:-0}" != 1 ]; then
+		die "config name '$name' is already used
+replace it with 'sdx import --force', remove it with 'sdx $svc remove $name', or rename the file"
+	fi
+	owner=$(uci -q get "${config}.${sid}.link" 2>/dev/null)
+	[ -z "$owner" ] || die "config '$name' is managed by link '$owner'
+the next sync would overwrite your file; change it on the server instead"
+}
+
 _store_config() {
 	local src="$1" dir="$2" dest base
 

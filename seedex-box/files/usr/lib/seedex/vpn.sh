@@ -91,11 +91,12 @@ _import_vpn() {
 	name=$(basename "$src" .conf)
 	proto=$(seedex_vpn_detect "$src") || die "'$src' is not a WireGuard or AmneziaWG config"
 
+	local replacing=0
 	if _find_section_by_name seedex-vpn config "$name" >/dev/null; then
-		die "config name '$name' is already used
-remove it first with 'sdx vpn remove $name', or rename the file"
+		replacing=1
 	fi
 	sid=$(_uci_sanitize_id "$name")
+	[ "$replacing" = 0 ] || _import_may_replace seedex-vpn "$sid" "$name" vpn
 	existing=$(uci -q get "seedex-vpn.${sid}.name" 2>/dev/null)
 	if [ -n "$existing" ] && [ "$existing" != "$name" ]; then
 		die "'$name' collides with the existing config '$existing' (both are UCI id '$sid')
@@ -107,10 +108,14 @@ rename one of the two config files"
 	uci set "seedex-vpn.${sid}=config" || die "cannot create UCI section '$sid'"
 	uci set "seedex-vpn.${sid}.name=${name}"
 	uci set "seedex-vpn.${sid}.proto=${proto}"
-	uci set "seedex-vpn.${sid}.enabled=1"
+	[ "$replacing" = 1 ] || uci set "seedex-vpn.${sid}.enabled=1"
 	uci set "seedex-vpn.${sid}.config=${dest}"
 
-	echo "added $proto config '$name'"
+	if [ "$replacing" = 1 ]; then
+		echo "replaced $proto config '$name'"
+	else
+		echo "added $proto config '$name'"
+	fi
 }
 
 svc_import_file() { _import_vpn "$1"; }

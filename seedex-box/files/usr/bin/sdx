@@ -328,8 +328,25 @@ a sing-box .json, a router rules .json, or proxy links, plain or base64"
 }
 
 cmd_import() {
-	local path="$1" tmp rc
-	[ -n "$path" ] || usage "sdx import <file|directory|link|url>"
+	local path tmp rc
+	SEEDEX_IMPORT_FORCE=0
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		-f | --force)
+			SEEDEX_IMPORT_FORCE=1
+			shift
+			;;
+		--)
+			shift
+			break
+			;;
+		-*) usage "sdx import [--force] <file|directory|link|url>" ;;
+		*) break ;;
+		esac
+	done
+	export SEEDEX_IMPORT_FORCE
+	path="$1"
+	[ -n "$path" ] || usage "sdx import [--force] <file|directory|link|url>"
 
 	case "$path" in
 	http://* | https://*)
@@ -428,8 +445,10 @@ cmd_help() {
 	echo "                                Choose which of them to import (a menu without names)"
 	echo "  link sync [<name>]            Pull configs now (cron does it every 30 minutes)"
 	echo "  link <name> [<command> ...]   Run the server's sdx: status, vpn add, proxy add ..."
-	echo "  import <path|link|url>        Import a config file, a directory of them, a proxy link,"
-	echo "                                or a subscription address"
+	echo "  import [--force] <path|link|url>"
+	echo "                                Import a config file, a directory of them, a proxy link,"
+	echo "                                or a subscription address; --force replaces configs"
+	echo "                                of the same name instead of refusing"
 	echo "  logs                          Show seedex logs (passes args to logread)"
 	echo "  version                       Show version"
 	echo "  help                          This text"
@@ -487,7 +506,7 @@ case "${1:-}" in
 	;;
 import)
 	shift
-	cmd_import "$1"
+	cmd_import "$@"
 	;;
 link)
 	shift

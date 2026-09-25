@@ -84,11 +84,12 @@ _import_singbox() {
 	local src="$1" name dest sid existing
 	name=$(basename "$src" .json)
 
+	local replacing=0
 	if _find_section_by_name seedex-proxy config "$name" >/dev/null; then
-		die "config name '$name' is already used
-remove it first with 'sdx proxy remove $name', or rename the file"
+		replacing=1
 	fi
 	sid=$(_uci_sanitize_id "$name")
+	[ "$replacing" = 0 ] || _import_may_replace seedex-proxy "$sid" "$name" proxy
 	existing=$(uci -q get "seedex-proxy.${sid}.name" 2>/dev/null)
 	if [ -n "$existing" ] && [ "$existing" != "$name" ]; then
 		die "'$name' collides with the existing config '$existing' (both are UCI id '$sid')
@@ -99,10 +100,14 @@ rename one of the two config files"
 
 	uci set "seedex-proxy.${sid}=config" || die "cannot create UCI section '$sid'"
 	uci set "seedex-proxy.${sid}.name=${name}"
-	uci set "seedex-proxy.${sid}.enabled=1"
+	[ "$replacing" = 1 ] || uci set "seedex-proxy.${sid}.enabled=1"
 	uci set "seedex-proxy.${sid}.config=${dest}"
 
-	echo "added proxy config '$name'"
+	if [ "$replacing" = 1 ]; then
+		echo "replaced proxy config '$name'"
+	else
+		echo "added proxy config '$name'"
+	fi
 }
 
 svc_import_file() { _import_singbox "$1"; }
