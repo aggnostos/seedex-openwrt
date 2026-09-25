@@ -132,14 +132,19 @@ return view.extend({
 			if (!n)
 				return Promise.reject(new Error(_('Name is required')));
 			var args = [];
+			var pin = iface.value.trim();
 			if (isNew) {
-				args.push(n, 'type=' + type.value, 'iface=' + iface.value.trim());
+				args.push(n, 'type=' + type.value);
+				if (pin)
+					args.push('iface=' + pin);
 			}
 			else {
 				args.push(oldName);
 				if (n !== oldName)
 					args.push('name=' + n);
-				args.push('iface=' + iface.value.trim(), 'type=' + type.value);
+				if (pin !== (s.iface || ''))
+					args.push('iface=' + pin);
+				args.push('type=' + type.value);
 			}
 			[ [ macs, 'client_mac' ], [ clientIps, 'client_ip' ], [ domains, 'domain' ], [ ips, 'ip' ] ].forEach(function(f) {
 				var list = splitList(f[0].value);

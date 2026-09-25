@@ -513,7 +513,7 @@ replace them with 'sdx import --force', or remove them with 'sdx router remove'"
 }
 
 svc_status() {
-	local mode kill winterval idx name type enabled url lpath domains clients n src
+	local mode kill winterval idx name type pin enabled url lpath domains clients n src
 	seedex_status_header router "Router"
 	mode=$(uci -q get seedex-router.main.default_route)
 	winterval=$(uci -q get seedex-router.main.watchdog_interval)
@@ -530,6 +530,8 @@ svc_status() {
 	while uci -q get "seedex-router.@rule[$idx]" >/dev/null 2>&1; do
 		name=$(uci -q get "seedex-router.@rule[$idx].name")
 		type=$(uci -q get "seedex-router.@rule[$idx].type")
+		pin=$(uci -q get "seedex-router.@rule[$idx].iface")
+		[ -z "$pin" ] || type="$pin"
 		enabled=$(uci -q get "seedex-router.@rule[$idx].enabled")
 		url=$(uci -q get "seedex-router.@rule[$idx].list_url")
 		lpath=$(uci -q get "seedex-router.@rule[$idx].list_path")
@@ -543,7 +545,7 @@ svc_status() {
 		n=0
 		for _ in $clients; do n=$((n + 1)); done
 		[ "$n" -eq 0 ] || src="$n clients"
-		printf '    %s %-18s %-8s %s\n' "$(seedex_mark "$([ "$enabled" = 1 ] && echo 1 || echo 0)")" \
+		printf '    %s %-18s %-16s %s\n' "$(seedex_mark "$([ "$enabled" = 1 ] && echo 1 || echo 0)")" \
 			"${name:-#$idx}" "$type" "$src"
 		idx=$((idx + 1))
 	done
