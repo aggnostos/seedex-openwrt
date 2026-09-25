@@ -81,7 +81,7 @@ _proxy_entry() {
 }
 
 _import_singbox() {
-	local src="$1" name dest sid existing
+	local src="$1" name dest sid existing staged=""
 	name=$(basename "$src" .json)
 
 	local replacing=0
@@ -96,15 +96,23 @@ _import_singbox() {
 rename one of the two config files"
 	fi
 
-	dest=$(_store_config "$src" "$SEEDEX_PROXY_DIR") || exit $?
+	if [ "$replacing" = 1 ]; then
+		staged=$(_stage_config "$src" "$SEEDEX_PROXY_DIR") || exit $?
+		dest=$(uci -q get "seedex-proxy.${sid}.config")
+		[ -n "$dest" ] || dest="$SEEDEX_PROXY_DIR/$(basename "$src")"
+	else
+		dest=$(_store_config "$src" "$SEEDEX_PROXY_DIR") || exit $?
+	fi
 
 	uci set "seedex-proxy.${sid}=config" || die "cannot create UCI section '$sid'"
 	uci set "seedex-proxy.${sid}.name=${name}"
 	[ "$replacing" = 1 ] || uci set "seedex-proxy.${sid}.enabled=1"
 	uci set "seedex-proxy.${sid}.config=${dest}"
 
+	[ -z "$staged" ] || uci set "seedex-proxy.${sid}.staged=${staged}"
+
 	if [ "$replacing" = 1 ]; then
-		echo "replaced proxy config '$name'"
+		echo "replaced proxy config '$name' (pending until 'sdx apply')"
 	else
 		echo "added proxy config '$name'"
 	fi

@@ -87,7 +87,7 @@ _vpn_entry() {
 }
 
 _import_vpn() {
-	local src="$1" name dest sid existing proto
+	local src="$1" name dest sid existing proto staged=""
 	name=$(basename "$src" .conf)
 	proto=$(seedex_vpn_detect "$src") || die "'$src' is not a WireGuard or AmneziaWG config"
 
@@ -103,7 +103,13 @@ _import_vpn() {
 rename one of the two config files"
 	fi
 
-	dest=$(_store_config "$src" "$SEEDEX_VPN_DIR") || exit $?
+	if [ "$replacing" = 1 ]; then
+		staged=$(_stage_config "$src" "$SEEDEX_VPN_DIR") || exit $?
+		dest=$(uci -q get "seedex-vpn.${sid}.config")
+		[ -n "$dest" ] || dest="$SEEDEX_VPN_DIR/$(basename "$src")"
+	else
+		dest=$(_store_config "$src" "$SEEDEX_VPN_DIR") || exit $?
+	fi
 
 	uci set "seedex-vpn.${sid}=config" || die "cannot create UCI section '$sid'"
 	uci set "seedex-vpn.${sid}.name=${name}"
@@ -111,8 +117,10 @@ rename one of the two config files"
 	[ "$replacing" = 1 ] || uci set "seedex-vpn.${sid}.enabled=1"
 	uci set "seedex-vpn.${sid}.config=${dest}"
 
+	[ -z "$staged" ] || uci set "seedex-vpn.${sid}.staged=${staged}"
+
 	if [ "$replacing" = 1 ]; then
-		echo "replaced $proto config '$name'"
+		echo "replaced $proto config '$name' (pending until 'sdx apply')"
 	else
 		echo "added $proto config '$name'"
 	fi

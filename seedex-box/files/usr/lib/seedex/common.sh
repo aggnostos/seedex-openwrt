@@ -215,6 +215,8 @@ seedex_prune_configs() {
 	while uci -q get "${config}.@${type}[$idx]" >/dev/null 2>&1; do
 		path=$(uci -q get "${config}.@${type}[$idx].config")
 		keep="$keep ${path##*/}"
+		path=$(uci -q get "${config}.@${type}[$idx].staged")
+		[ -z "$path" ] || keep="$keep ${path##*/}"
 		idx=$((idx + 1))
 	done
 	for f in "$dir"/*; do

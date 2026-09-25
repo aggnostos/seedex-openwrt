@@ -222,6 +222,42 @@ replace it with 'sdx import --force', remove it with 'sdx $svc remove $name', or
 the next sync would overwrite your file; change it on the server instead"
 }
 
+# A replacement must not take effect before 'apply', so it is written beside
+# the config as <name>.new and recorded in the pending section.
+_stage_config() {
+	local src="$1" dir="$2" base staged
+
+	base=$(basename "$src")
+	seedex_config_dir_init
+	staged="$dir/$base.new"
+	cp "$src" "$staged" || die "cannot write $staged"
+	chmod 600 "$staged"
+	printf '%s\n' "$staged"
+}
+
+_swap_staged() {
+	local idx=0 path staged
+	while uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx]" >/dev/null 2>&1; do
+		staged=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].staged")
+		path=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].config")
+		idx=$((idx + 1))
+		[ -n "$staged" ] || continue
+		uci -q delete "${SVC_ID}.@${SVC_SECTION}[$((idx - 1))].staged"
+		[ -f "$staged" ] || continue
+		mv "$staged" "$path" || die "cannot replace $path"
+		chmod 600 "$path"
+	done
+}
+
+_drop_staged() {
+	local idx=0 staged
+	while uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx]" >/dev/null 2>&1; do
+		staged=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].staged")
+		[ -z "$staged" ] || rm -f "$staged"
+		idx=$((idx + 1))
+	done
+}
+
 _store_config() {
 	local src="$1" dir="$2" dest base
 
@@ -316,6 +352,7 @@ svc_apply() {
 	pending=$(uci changes "$SVC_ID" 2>/dev/null)
 	[ -n "$pending" ] || seedex_config_stale "$SVC_NAME" || return "$SVC_NOOP"
 	if [ -n "$pending" ]; then
+		_swap_staged
 		uci commit "$SVC_ID"
 		echo "saved $SVC_ID"
 	fi
@@ -324,6 +361,7 @@ svc_apply() {
 
 svc_revert() {
 	[ -n "$(uci changes "$SVC_ID" 2>/dev/null)" ] || return "$SVC_NOOP"
+	_drop_staged
 	uci revert "$SVC_ID"
 	echo "reverted $SVC_ID"
 }
