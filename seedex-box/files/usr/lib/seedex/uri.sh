@@ -168,9 +168,19 @@ _uri_wrap() {
 }
 
 seedex_uri_name() {
-	local name="$URI_FRAGMENT"
+	local name="$URI_FRAGMENT" host
 	[ -n "$name" ] || name="$URI_SCHEME-$URI_HOST"
 	name=$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//; s/-*$//; s/--*/-/g')
+	# A tag written in a non-latin script leaves only its digits behind, so
+	# prefix the host label to keep the name recognizable.
+	case "$name" in
+	*[A-Za-z]*) ;;
+	*)
+		host="${URI_HOST%%.*}"
+		host=$(printf '%s' "$host" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//; s/-*$//; s/--*/-/g')
+		[ -z "$host" ] || name="$host${name:+-$name}"
+		;;
+	esac
 	printf '%s\n' "${name:-$URI_SCHEME}"
 }
 
