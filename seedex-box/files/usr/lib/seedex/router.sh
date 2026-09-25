@@ -406,7 +406,7 @@ svc_export() {
 
 svc_import_file() {
 	local file="$1" tab sep records
-	local name type enabled url lpath refresh domains ips macs clients sid d
+	local name type enabled url lpath refresh domains ips macs clients sid d verb
 	tab=$(printf '\t')
 	sep=$(printf '\037')
 
@@ -422,10 +422,31 @@ svc_import_file() {
 		  ((.client_ip // []) | map(tostring) | join(" ")) ] | @tsv
 	' "$file" 2>/dev/null) || die "cannot parse '$file' — not a valid rules export"
 
+	# Refuse the whole file before touching anything, so an import never
+	# leaves half of its rules applied.
+	local taken="" taken_file
+	taken_file=$(mktemp)
+	printf '%s\n' "$records" | tr "$tab" "$sep" |
+		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs clients; do
+			[ -n "$name" ] || continue
+			_find_section_by_name "$SVC_ID" "$SVC_SECTION" "$name" >/dev/null || continue
+			printf '%s\n' "$name"
+		done >"$taken_file"
+	taken=$(tr '\n' ' ' <"$taken_file")
+	rm -f "$taken_file"
+	if [ -n "$(printf '%s' "$taken" | tr -d ' ')" ] && [ "${SEEDEX_IMPORT_FORCE:-0}" != 1 ]; then
+		die "these rule names are already used:$(printf '%s' " $taken" | sed 's/ *$//')
+replace them with 'sdx import --force', or remove them with 'sdx router remove'"
+	fi
+
 	printf '%s\n' "$records" | tr "$tab" "$sep" |
 		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs clients; do
 			[ -n "$name" ] || continue
 			sid=$(_uci_sanitize_id "$name")
+			verb="added"
+			case " $taken " in
+			*" $name "*) verb="replaced" ;;
+			esac
 
 			uci set "${SVC_ID}.${sid}=${SVC_SECTION}"
 			uci set "${SVC_ID}.${sid}.name=${name}"
@@ -452,7 +473,7 @@ svc_import_file() {
 				uci add_list "${SVC_ID}.${sid}.client_ip=${d}"
 			done
 
-			echo "added rule '$name' (type=$type)"
+			echo "$verb rule '$name' (type=$type)"
 		done
 }
 
