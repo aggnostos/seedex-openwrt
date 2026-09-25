@@ -253,8 +253,33 @@ _import_link() {
 	return "$rc"
 }
 
+_import_url() {
+	local url="$1" tmp name rc
+	name="${url#*://}"
+	name="${name%%/*}"
+	name="${name%%:*}"
+	name=$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '-')
+	tmp=$(mktemp -d)
+	if ! seedex_fetch "$url" "$tmp/${name:-subscription}"; then
+		rm -rf "$tmp"
+		warn "$url: download failed"
+		return 1
+	fi
+	_import_one "$tmp/${name:-subscription}"
+	rc=$?
+	rm -rf "$tmp"
+	return "$rc"
+}
+
 _import_links_file() {
-	local file="$1" line ok=0 failed=0
+	local file="$1" name="${1##*/}" src="$1" line ok=0 failed=0 tmp="" decoded
+	# shellcheck source=files/usr/lib/seedex/uri.sh
+	. /usr/lib/seedex/uri.sh
+	if decoded=$(seedex_links_decode <"$file"); then
+		tmp=$(mktemp)
+		printf '%s\n' "$decoded" >"$tmp"
+		src="$tmp"
+	fi
 	while IFS= read -r line || [ -n "$line" ]; do
 		line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
 		case "$line" in
@@ -265,9 +290,10 @@ _import_links_file() {
 		else
 			failed=$((failed + 1))
 		fi
-	done <"$file"
+	done <"$src"
+	[ -z "$tmp" ] || rm -f "$tmp"
 	[ "$failed" -eq 0 ] || [ "$ok" -gt 0 ] || return 1
-	[ "$failed" -eq 0 ] || warn "$(basename "$file"): $failed link(s) skipped"
+	[ "$failed" -eq 0 ] || warn "$name: $failed link(s) skipped"
 }
 
 _import_one() {
@@ -289,22 +315,40 @@ _import_one() {
 		;;
 	*)
 		warn "$(basename "$file"): unrecognised — expected an AmneziaWG .conf,
-a sing-box .json, a router rules .json, or a file of proxy links"
+a sing-box .json, a router rules .json, or proxy links, plain or base64"
 		return 1
 		;;
 	esac
 }
 
 cmd_import() {
-	local path="$1"
-	[ -n "$path" ] || usage "sdx import <file|directory|link>"
+	local path="$1" tmp rc
+	[ -n "$path" ] || usage "sdx import <file|directory|link|url>"
 
 	case "$path" in
+	http://* | https://*)
+		_import_url "$path" || exit 1
+		return
+		;;
 	*://*)
 		_import_link "$path" || exit 1
 		return
 		;;
 	esac
+
+	if [ ! -e "$path" ]; then
+		# shellcheck source=files/usr/lib/seedex/uri.sh
+		. /usr/lib/seedex/uri.sh
+		if printf '%s' "$path" | seedex_links_decode >/dev/null 2>&1; then
+			tmp=$(mktemp)
+			printf '%s\n' "$path" >"$tmp"
+			_import_links_file "$tmp"
+			rc=$?
+			rm -f "$tmp"
+			[ "$rc" -eq 0 ] || exit 1
+			return
+		fi
+	fi
 
 	if [ -f "$path" ]; then
 		_import_one "$path" || exit 1
@@ -378,7 +422,8 @@ cmd_help() {
 	echo "                                Choose which of them to import (a menu without names)"
 	echo "  link sync [<name>]            Pull configs now (cron does it every 30 minutes)"
 	echo "  link <name> [<command> ...]   Run the server's sdx: status, vpn add, proxy add ..."
-	echo "  import <path|link>            Import a config file, every config in a directory, or a proxy link"
+	echo "  import <path|link|url>        Import a config file, a directory of them, a proxy link,"
+	echo "                                or a subscription address"
 	echo "  logs                          Show seedex logs (passes args to logread)"
 	echo "  version                       Show version"
 	echo "  help                          This text"

@@ -1,5 +1,8 @@
 # shellcheck shell=ash
 
+[ -z "${SEEDEX_URI_SH:-}" ] || return 0
+SEEDEX_URI_SH=1
+
 SEEDEX_URI_SCHEMES="vless trojan ss vmess hysteria2 hy2 tuic anytls"
 
 seedex_is_uri() {
@@ -8,7 +11,8 @@ seedex_is_uri() {
 	*://*) ;;
 	*) return 1 ;;
 	esac
-	scheme=$(printf '%s' "${1%%://*}" | tr '[:upper:]' '[:lower:]')
+	# shellcheck disable=SC2018,SC2019
+	scheme=$(printf '%s' "${1%%://*}" | tr 'A-Z' 'a-z')
 	case " $SEEDEX_URI_SCHEMES " in
 	*" $scheme "*) return 0 ;;
 	esac
@@ -23,7 +27,19 @@ _uri_b64d() {
 	local s
 	s=$(printf '%s' "$1" | tr -- '-_' '+/' | tr -d '\n\r= ')
 	while [ $((${#s} % 4)) -ne 0 ]; do s="$s="; done
-	printf '%s' "$s" | base64 -d 2>/dev/null
+	printf '%s' "$s" | jq -Rr '@base64d' 2>/dev/null
+}
+
+seedex_links_decode() {
+	local blob out
+	blob=$(tr -d ' \t\n\r\f\v')
+	case "$blob" in
+	"" | *[!A-Za-z0-9+/=_-]*) return 1 ;;
+	esac
+	out=$(_uri_b64d "$blob")
+	[ -n "$out" ] || return 1
+	printf '%s\n' "$out" | grep -qE '^[[:space:]]*[a-z0-9]+://' || return 1
+	printf '%s\n' "$out"
 }
 
 _uri_q() {
@@ -39,7 +55,8 @@ _uri_fail() {
 
 _uri_split() {
 	local rest="$1"
-	URI_SCHEME=$(printf '%s' "${rest%%://*}" | tr '[:upper:]' '[:lower:]')
+	# shellcheck disable=SC2018,SC2019
+	URI_SCHEME=$(printf '%s' "${rest%%://*}" | tr 'A-Z' 'a-z')
 	rest="${rest#*://}"
 	URI_FRAGMENT=""
 	case "$rest" in

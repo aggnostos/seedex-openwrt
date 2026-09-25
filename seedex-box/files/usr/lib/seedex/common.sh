@@ -115,7 +115,13 @@ seedex_config_kind() {
 	elif head -c 200 "$file" | grep -q '^[[:space:]]*{'; then
 		echo singbox
 	else
-		echo unknown
+		# shellcheck source=files/usr/lib/seedex/uri.sh
+		. /usr/lib/seedex/uri.sh
+		if seedex_links_decode <"$file" >/dev/null 2>&1; then
+			echo links
+		else
+			echo unknown
+		fi
 	fi
 }
 
@@ -511,7 +517,7 @@ seedex_router_load() {
 	[ "$WATCHDOG_INTERVAL" -gt 0 ] 2>/dev/null || WATCHDOG_INTERVAL=30
 }
 
-seedex_list_fetch() {
+seedex_fetch() {
 	curl -fsSL --max-time 30 --max-filesize 10485760 -o "$2" "$1" 2>/dev/null
 }
 

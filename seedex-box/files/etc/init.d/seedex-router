@@ -165,7 +165,7 @@ download_lists() {
 		local tmp="${dest}.new"
 		log_debug "downloading list '$list_url'"
 
-		if seedex_list_fetch "$list_url" "$tmp"; then
+		if seedex_fetch "$list_url" "$tmp"; then
 			mv "$tmp" "$dest"
 			local count
 			count=$(wc -l <"$dest")

@@ -121,7 +121,7 @@ check_list_refresh() {
 		local tmp="${dest}.new"
 
 		log_debug "refreshing list '$section' from '$list_url'"
-		if seedex_list_fetch "$list_url" "$tmp"; then
+		if seedex_fetch "$list_url" "$tmp"; then
 			if [ -f "$dest" ] && cmp -s "$tmp" "$dest"; then
 				rm -f "$tmp"
 				log_debug "list '$section' unchanged"
