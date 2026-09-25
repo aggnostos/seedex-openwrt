@@ -222,17 +222,23 @@ cmd_logs() {
 	logread -e seedex "$@"
 }
 
+# A link carries a uuid or a password in its userinfo, and these warnings end
+# up in bug reports, so redact that part before printing.
+_link_label() {
+	printf '%s' "$1" | sed 's|://[^@/]*@|://***@|' | cut -c1-60
+}
+
 _import_link() {
 	local link="$1" tmp name reason
 	# shellcheck source=files/usr/lib/seedex/uri.sh
 	. /usr/lib/seedex/uri.sh
 	seedex_is_uri "$link" || {
-		warn "$(printf '%s' "$link" | cut -c1-40): not a supported link (vless, trojan, ss, vmess, hysteria2, tuic, anytls)"
+		warn "$(_link_label "$link"): not a supported link (vless, trojan, ss, vmess, hysteria2, tuic, anytls)"
 		return 1
 	}
 	tmp=$(mktemp -d)
 	if ! seedex_uri_outbound "$link" >"$tmp/out.json" 2>"$tmp/err"; then
-		warn "$(printf '%s' "$link" | cut -c1-40): $(cat "$tmp/err")"
+		warn "$(_link_label "$link"): $(cat "$tmp/err")"
 		case "$link" in
 		*\&*) ;;
 		*\?*) warn "if the link had more parameters, quote it: sdx import 'vless://...'" ;;
