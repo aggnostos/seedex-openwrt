@@ -14,6 +14,8 @@ NFT_TABLE="seedex_proxy"
 
 SING_BOX_EXEC=/usr/bin/sing-box
 
+MAX_TUNNELS=1024
+
 PID_FILE="$PROXY_RUNDIR/sing-box.pid"
 
 EXTRA_COMMANDS="attach detach"
@@ -110,6 +112,12 @@ _assemble_config() {
 		log_err "no enabled proxy configs"
 		return 1
 	}
+	# shellcheck disable=SC2086
+	set -- $ENABLED_CONFIGS
+	[ $# -le "$MAX_TUNNELS" ] || {
+		log_err "$# proxy configs are enabled, at most $MAX_TUNNELS fit — disable some"
+		return 1
+	}
 
 	local outbounds
 	# shellcheck disable=SC2086
@@ -159,7 +167,7 @@ _assemble_config() {
 		| [ $srcs[] as $s
 		    | [ $outbounds[] | select(._src == $s) ] as $group
 		    | [ $group[] | .detour // empty ] as $legs
-		    | { n: ($s | tostring),
+		    | { n: ($s | tostring), addr: ($s * 4),
 		        iface: ($prefix + ($s | tostring)),
 		        tun: ("tun-" + ($s | tostring)),
 		        entries: [ $group[] | select(.tag as $t | ($legs | index($t)) == null) | .tag ] } ]
@@ -173,7 +181,7 @@ _assemble_config() {
 		    },
 		    inbounds: [ $groups[]
 		      | { type: "tun", tag: .tun, interface_name: .iface,
-		          address: [ "172.19." + .n + ".1/30", "fdfe:dcba:9876:" + .n + "::1/126" ],
+		          address: [ "172.19.\(.addr / 256 | floor).\(.addr % 256 + 1)/30", "fdfe:dcba:9876:" + .n + "::1/126" ],
 		          auto_route: false, stack: "gvisor" } ],
 		    outbounds: (
 		      [ $outbounds[] | del(._src) ]
