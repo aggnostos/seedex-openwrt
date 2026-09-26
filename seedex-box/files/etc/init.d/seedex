@@ -7,20 +7,27 @@ TAG="seedex"
 . /usr/lib/seedex/common.sh
 
 IFACE_TIMEOUT=30
+PROXY_IFACES="$SEEDEX_RUNDIR/proxy/ifaces"
+
+_ifaces_missing() {
+	local registered
+	registered=" $(seedex_all_ifaces | awk '{ print $1 }' | tr '\n' ' ')"
+	[ "$registered" != " " ] || return 0
+	[ -f "$PROXY_IFACES" ] || return 1
+	awk -v r="$registered" '!index(r, " " $1 " ") { found = 1 } END { exit !found }' "$PROXY_IFACES"
+}
 
 _wait_for_ifaces() {
 	local i=0
 	while [ "$i" -lt "$IFACE_TIMEOUT" ]; do
-		local count
-		count=$(seedex_all_ifaces | wc -l | tr -d ' ')
-		if [ "$count" -gt 0 ]; then
-			log_info "interfaces ready ($count registered)"
+		if ! _ifaces_missing; then
+			log_info "interfaces ready ($(seedex_all_ifaces | wc -l | tr -d ' ') registered)"
 			return 0
 		fi
 		i=$((i + 1))
 		sleep 1
 	done
-	log_warn "no interfaces registered after ${IFACE_TIMEOUT}s, starting router anyway"
+	log_warn "not every interface registered after ${IFACE_TIMEOUT}s, starting router anyway"
 }
 
 start() {
@@ -28,6 +35,7 @@ start() {
 	mkdir -p "$SEEDEX_RUNDIR"
 
 	local svc
+	export SEEDEX_BOOT=1
 	for svc in seedex-dns seedex-vpn seedex-proxy; do
 		seedex_service_enabled "${svc#seedex-}" || continue
 		[ -x "/etc/init.d/$svc" ] && /etc/init.d/$svc start

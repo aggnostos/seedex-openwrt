@@ -61,6 +61,7 @@ seedex_service_registered() {
 
 seedex_start_router() {
 	local svc
+	[ -z "${SEEDEX_BOOT:-}" ] || return 0
 	for svc in dns router; do
 		seedex_service_enabled "$svc" || continue
 		seedex_service_registered "$svc" && continue
