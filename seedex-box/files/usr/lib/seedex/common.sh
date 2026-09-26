@@ -74,6 +74,11 @@ seedex_config_stamp() {
 	uci -q show "seedex-$1" 2>/dev/null | md5sum >"$SEEDEX_RUNDIR/$1/config.md5"
 }
 
+seedex_config_touch() {
+	local stamp="$SEEDEX_RUNDIR/$1/config.md5"
+	[ ! -f "$stamp" ] || echo changed >"$stamp"
+}
+
 seedex_config_stale() {
 	local stamp="$SEEDEX_RUNDIR/$1/config.md5"
 	[ -f "$stamp" ] || return 1

@@ -85,6 +85,7 @@ _link_place() {
 		return 2
 	fi
 	cp "$file" "$dest" && chmod 600 "$dest" || return 1
+	seedex_config_touch "$svc"
 	echo "  ~ $svc $name"
 }
 
@@ -327,7 +328,7 @@ _link_sync_one() {
 		echo "$name: synced; the changes are pending until 'sdx apply'"
 	elif [ "$changed" = 1 ]; then
 		for svc in vpn proxy; do
-			[ -n "$(uci changes "seedex-$svc" 2>/dev/null)" ] || continue
+			[ -n "$(uci changes "seedex-$svc" 2>/dev/null)" ] || seedex_config_stale "$svc" || continue
 			_svc "$svc" apply >/dev/null
 		done
 		echo "$name: synced, services restarted"
@@ -417,7 +418,7 @@ link_remove() {
 	rm -f "$LINK_RUNDIR/$name"
 	if [ "$changed" = 1 ]; then
 		for svc in vpn proxy; do
-			[ -n "$(uci changes "seedex-$svc" 2>/dev/null)" ] || continue
+			[ -n "$(uci changes "seedex-$svc" 2>/dev/null)" ] || seedex_config_stale "$svc" || continue
 			_svc "$svc" apply >/dev/null
 		done
 	fi
