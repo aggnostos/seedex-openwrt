@@ -77,7 +77,7 @@ return view.extend({
 			if (s.list_url) source.push(_('URL list'));
 			if (s.list_path) source.push(_('file list'));
 
-			return [ api.mark(enabled), name, s.type || '—', source.join(' + ') || _('(empty)'),
+			return [ api.mark(enabled), name, s.type || '—', s.iface || '—', source.join(' + ') || _('(empty)'),
 				E('div', {}, [
 					api.button(_('Edit'), 'cbi-button-action', function() {
 						return self.openEditor(s, refresh);
@@ -97,7 +97,7 @@ return view.extend({
 
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Rules')),
-			api.table([ '', _('Name'), _('Type'), _('Source'), '' ], rows, _('No rules yet')),
+			api.table([ '', _('Name'), _('Type'), _('Tunnel'), _('Source'), '' ], rows, _('No rules yet')),
 			E('div', { 'class': 'cbi-page-actions' }, [
 				api.button(_('Add rule'), 'cbi-button-add', function() {
 					return self.openEditor(null, refresh);
