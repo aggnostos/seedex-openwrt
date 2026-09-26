@@ -89,13 +89,14 @@ check_list_refresh() {
 
 	_check_rule_refresh() {
 		local section="$1"
-		local enabled type list_url list_refresh
+		local enabled type iface list_url list_refresh
 
 		config_get_bool enabled "$section" enabled 0
 		[ "$enabled" -eq 1 ] || return 0
 
 		config_get type "$section" type ''
-		[ "$type" != "$DEFAULT_ROUTE" ] || return 0
+		config_get iface "$section" iface ''
+		[ -n "$iface" ] || [ "$type" != "$DEFAULT_ROUTE" ] || return 0
 
 		config_get list_url "$section" list_url ''
 		[ -n "$list_url" ] || return 0
