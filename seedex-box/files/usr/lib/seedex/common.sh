@@ -563,7 +563,7 @@ seedex_overlay_release() {
 
 seedex_router_load() {
 	config_load seedex-router
-	config_get DEFAULT_ROUTE main default_route 'direct'
+	config_get DEFAULT_ROUTE main default_route 'overlay'
 	config_get PROBE_URL main watchdog_url "$SEEDEX_PROBE_URL"
 	config_get PROBE_TIMEOUT main watchdog_timeout '5'
 	config_get WATCHDOG_INTERVAL main watchdog_interval '30'
