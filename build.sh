@@ -47,6 +47,8 @@ resolve_version() {
 	local rev
 	rev="$(printf '%s\n' "$version" | sed -n 's/^[^-]*-\([0-9]*\)-g[0-9a-f]*\(-dirty\)\{0,1\}$/\1/p')"
 	[ -n "$rev" ] || case "$version" in *-dirty) rev=0 ;; esac
+	# CI numbers every published build, so a moved tag still ships as an upgrade
+	[ -z "${SEEDEX_BUILD:-}" ] || rev="$SEEDEX_BUILD"
 	APK_VERSION="$VERSION${rev:+-r$rev}"
 	IPK_VERSION="$VERSION${rev:+-$rev}"
 }

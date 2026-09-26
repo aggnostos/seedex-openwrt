@@ -39,6 +39,8 @@ jobs:
           openssl pkey -in ~/.seedex/apk-sign.key -noout
 
       - name: Build the packages
+        env:
+          SEEDEX_BUILD: ${{ github.run_number }}
         run: make build
 
       - name: Assemble the site
