@@ -408,7 +408,7 @@ use 'sdx router update' to change it, or pick another name"
 }
 
 svc_export() {
-	local idx=0 name type enabled url lpath refresh domains ips macs clients
+	local idx=0 name type enabled url lpath refresh domains ips macs clients iface
 	{
 		while uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx]" >/dev/null 2>&1; do
 			name=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].name")
@@ -421,16 +421,18 @@ svc_export() {
 			ips=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].ip")
 			macs=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].client_mac")
 			clients=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].client_ip")
+			iface=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].iface")
 			idx=$((idx + 1))
 
-			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
 				"$name" "$type" "$enabled" "$url" "$lpath" "$refresh" \
-				"$domains" "$ips" "$macs" "$clients"
+				"$domains" "$ips" "$macs" "$clients" "$iface"
 		done
 	} | jq -R -s '
 		def words: split(" ") | map(select(length > 0));
 		[ split("\n")[] | select(length > 0) | split("\t") as $f |
 		    { name: $f[0], type: $f[1], enabled: ($f[2] != "0") }
+		  + (if $f[10] != "" then { iface: $f[10] } else {} end)
 		  + (if $f[3] != "" then { list_url: $f[3] } else {} end)
 		  + (if $f[4] != "" then { list_path: $f[4] } else {} end)
 		  + (if $f[5] != "" then { list_refresh: $f[5] } else {} end)
@@ -440,8 +442,8 @@ svc_export() {
 }
 
 svc_import_file() {
-	local file="$1" tab sep records
-	local name type enabled url lpath refresh domains ips macs clients sid d verb
+	local file="$1" tab sep records pinned
+	local name type enabled url lpath refresh domains ips macs clients iface sid d verb
 	tab=$(printf '\t')
 	sep=$(printf '\037')
 
@@ -454,15 +456,18 @@ svc_import_file() {
 		  ((.domain // []) | map(tostring) | join(" ")),
 		  ((.ip // []) | map(tostring) | join(" ")),
 		  ((.client_mac // []) | map(tostring) | join(" ")),
-		  ((.client_ip // []) | map(tostring) | join(" ")) ] | @tsv
+		  ((.client_ip // []) | map(tostring) | join(" ")),
+		  f(.iface) ] | @tsv
 	' "$file" 2>/dev/null) || die "cannot parse '$file' — not a valid rules export"
+	pinned=$(jq -r '.[]? | select((.iface // "") != "" and .type != "overlay") | .name' "$file" | tr '\n' ' ')
+	[ -z "$pinned" ] || die "iface= pins a rule to a tunnel, so its type is overlay: ${pinned% }"
 
 	# Refuse the whole file before touching anything, so an import never
 	# leaves half of its rules applied.
 	local taken="" taken_file
 	taken_file=$(mktemp)
 	printf '%s\n' "$records" | tr "$tab" "$sep" |
-		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs clients; do
+		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs clients iface; do
 			[ -n "$name" ] || continue
 			_find_section_by_name "$SVC_ID" "$SVC_SECTION" "$name" >/dev/null || continue
 			printf '%s\n' "$name"
@@ -475,7 +480,7 @@ replace them with 'sdx import --force', or remove them with 'sdx router remove'"
 	fi
 
 	printf '%s\n' "$records" | tr "$tab" "$sep" |
-		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs clients; do
+		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs clients iface; do
 			[ -n "$name" ] || continue
 			sid=$(_uci_sanitize_id "$name")
 			verb="added"
@@ -488,9 +493,10 @@ replace them with 'sdx import --force', or remove them with 'sdx router remove'"
 			uci set "${SVC_ID}.${sid}.type=${type}"
 			uci set "${SVC_ID}.${sid}.enabled=${enabled}"
 
-			for d in list_url list_path list_refresh domain ip client_mac client_ip; do
+			for d in list_url list_path list_refresh domain ip client_mac client_ip iface; do
 				uci -q delete "${SVC_ID}.${sid}.${d}"
 			done
+			_uci_set_if "${SVC_ID}.${sid}" iface "$iface"
 			_uci_set_if "${SVC_ID}.${sid}" list_url "$url"
 			_uci_set_if "${SVC_ID}.${sid}" list_path "$lpath"
 			_uci_set_if "${SVC_ID}.${sid}" list_refresh "$refresh"
