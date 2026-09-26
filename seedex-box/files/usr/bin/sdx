@@ -228,6 +228,8 @@ _link_label() {
 	printf '%s' "$1" | sed 's|://[^@/]*@|://***@|' | cut -c1-60
 }
 
+IMPORT_NAMES=""
+
 _import_link() {
 	local link="$1" tmp name reason
 	# shellcheck source=files/usr/lib/seedex/uri.sh
@@ -247,6 +249,12 @@ _import_link() {
 		return 1
 	fi
 	name=$(seedex_uri_name)
+	local base="$name" n=1
+	while case " $IMPORT_NAMES " in *" $name "*) true ;; *) false ;; esac do
+		n=$((n + 1))
+		name="$base-$n"
+	done
+	IMPORT_NAMES="$IMPORT_NAMES $name"
 	mv "$tmp/out.json" "$tmp/$name.json"
 	reason=$(seedex_config_validate "$tmp/$name.json" singbox) || {
 		warn "$name: $reason"
