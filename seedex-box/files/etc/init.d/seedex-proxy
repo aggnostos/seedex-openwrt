@@ -39,18 +39,14 @@ _reserved_of() {
 }
 
 _sync_nat() {
-	local iface live="" dead=""
-	for iface in $(_ifaces); do
-		if seedex_iface_is_up "$iface"; then
-			live="$live $iface"
-		else
-			dead="$dead $iface"
-		fi
-	done
+	local ifaces stale
+	ifaces=" $(_ifaces | tr '\n' ' ')"
+	stale=$(seedex_fw_devices | awk -v p="$SEEDEX_PROXY_IFACE_PREFIX" -v keep="$ifaces" '
+		index($0, p) == 1 && substr($0, length(p) + 1) ~ /^[0-9]+$/ && !index(keep, " " $0 " ")')
 	# shellcheck disable=SC2086
-	[ -z "$dead" ] || seedex_fw_forget $dead
+	[ -z "$stale" ] || seedex_fw_forget $stale
 	# shellcheck disable=SC2086
-	[ -z "$live" ] || seedex_nat_enable "$NFT_TABLE" $live
+	[ "$ifaces" = " " ] || seedex_nat_enable "$NFT_TABLE" $ifaces
 }
 
 _attach() {

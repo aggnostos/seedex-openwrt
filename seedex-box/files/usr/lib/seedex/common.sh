@@ -375,6 +375,12 @@ seedex_nat_enable() {
 	log_debug "nat enabled for: $*"
 }
 
+seedex_fw_devices() {
+	local idx
+	idx=$(_seedex_find_wan_zone) || return 0
+	uci -q get "firewall.@zone[$idx].device" | tr ' ' '\n'
+}
+
 seedex_fw_forget() {
 	local iface
 	for iface in "$@"; do
