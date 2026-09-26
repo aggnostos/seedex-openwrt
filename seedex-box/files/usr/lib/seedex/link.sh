@@ -28,11 +28,20 @@ _link_curl() {
 	curl -s -k --pinnedpubkey "$fp" -H "Authorization: Bearer $token" "$@" "$url$path"
 }
 
-_link_fetch() {
-	local name="$1" out="$2" url code
-	url=$(uci -q get "seedex-link.$name.url")
-	code=$(_link_curl "$name" /v1/configs -o "$out" -w '%{http_code}' --max-time 30 2>/dev/null) || {
+_link_unreachable() {
+	local url
+	url=$(uci -q get "seedex-link.$1.url")
+	if [ "$2" = 90 ]; then
+		echo "$url presented a different certificate — if the server was reinstalled, pair again"
+	else
 		echo "cannot reach $url"
+	fi
+}
+
+_link_fetch() {
+	local name="$1" out="$2" code
+	code=$(_link_curl "$name" /v1/configs -o "$out" -w '%{http_code}' --max-time 30 2>/dev/null) || {
+		_link_unreachable "$name" $?
 		return 1
 	}
 	case "$code" in
@@ -516,8 +525,9 @@ link_run() {
 	code=$(jq -n --args '{args: $ARGS.positional}' -- "$@" |
 		_link_curl "$name" /v1/run -o "$tmp" -w '%{http_code}' --max-time 130 \
 			-H 'Content-Type: application/json' --data-binary @- 2>/dev/null) || {
+		rc=$?
 		rm -f "$tmp"
-		die "cannot reach $(uci -q get "seedex-link.$name.url")"
+		die "$(_link_unreachable "$name" "$rc")"
 	}
 	body=$(cat "$tmp")
 	rm -f "$tmp"
