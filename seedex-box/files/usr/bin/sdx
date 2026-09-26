@@ -404,15 +404,16 @@ cmd_import() {
 }
 
 cmd_apply() {
-	local svc did=0
+	local svc did=0 failed=""
 	for svc in dns vpn proxy router; do
 		_svc "$svc" apply
 		case $? in
 		0) did=1 ;;
 		"$SVC_NOOP") ;;
-		*) exit 1 ;;
+		*) failed="$failed $svc" ;;
 		esac
 	done
+	[ -z "$failed" ] || die "apply failed for:$failed"
 	[ "$did" = 1 ] || echo "nothing to apply"
 }
 
