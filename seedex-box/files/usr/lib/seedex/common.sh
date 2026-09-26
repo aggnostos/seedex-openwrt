@@ -521,12 +521,12 @@ seedex_pin_sync() {
 }
 
 seedex_pin_clear() {
-	local n iface name
-	[ -f "$SEEDEX_PINS_FILE" ] || return 0
+	local file="${1:-$SEEDEX_PINS_FILE}" n iface name
+	[ -f "$file" ] || return 0
 	while read -r n iface name; do
 		[ -n "$n" ] || continue
 		_seedex_pin_rules del "$(seedex_pin_mark "$n")" ""
-	done <"$SEEDEX_PINS_FILE"
+	done <"$file"
 }
 
 SEEDEX_PROBE_TABLE_BASE=100000

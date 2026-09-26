@@ -138,10 +138,21 @@ _collect_pin() {
 }
 
 collect_pins() {
-	seedex_pin_clear
 	mkdir -p "$(dirname "$PINS_FILE")"
+	touch "$PINS_FILE" "$PINS_FILE.old"
+	cat "$PINS_FILE" >>"$PINS_FILE.old"
 	: >"$PINS_FILE"
 	config_foreach _collect_pin rule
+}
+
+_pins_changed() {
+	! cmp -s "$PINS_FILE.old" "$PINS_FILE"
+}
+
+_pins_forget_dropped() {
+	awk 'NR == FNR { kept[$1] = 1; next } !($1 in kept)' "$PINS_FILE" "$PINS_FILE.old" >"$PINS_FILE.dropped"
+	seedex_pin_clear "$PINS_FILE.dropped"
+	rm -f "$PINS_FILE.old" "$PINS_FILE.dropped"
 }
 
 _pins() {
@@ -346,14 +357,6 @@ _tunnels_refresh() {
 	ifaces=$(seedex_active_ifaces | tr '\n' ',')
 	ifaces="${ifaces%,}"
 	[ -z "$ifaces" ] || nft add element inet "$NFT_TABLE" tunnels "{ $ifaces }" 2>/dev/null
-}
-
-_pin_sets_present() {
-	local t
-	for t in $(_pins); do
-		nft list set inet "$NFT_TABLE" "${t}_ips" >/dev/null 2>&1 || return 1
-	done
-	return 0
 }
 
 _collect_buckets() {
@@ -672,6 +675,7 @@ setup_policy_routing() {
 
 teardown_policy_routing() {
 	seedex_pin_clear
+	seedex_pin_clear "$PINS_FILE.old"
 	ip rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
 	ip route flush table "$ROUTE_TABLE" 2>/dev/null
 	ip -6 rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
@@ -695,9 +699,11 @@ start_service() {
 	_dns_wait
 
 	collect_pins
+	seedex_pin_sync
 	download_lists
 	_collect_buckets
 	setup_nftables || return 1
+	_pins_forget_dropped
 	publish_domains
 	setup_policy_routing
 
@@ -739,14 +745,17 @@ reapply() {
 
 	log_info "reapplying rules"
 	collect_pins
-	if ! _pin_sets_present; then
+	if _pins_changed; then
 		log_info "pinned tunnels changed, rebuilding the rule set"
+		seedex_pin_sync
 		setup_nftables || return 1
+		_pins_forget_dropped
 		publish_domains
 		seedex_pin_sync
 		log_info "reapplied"
 		return 0
 	fi
+	_pins_forget_dropped
 	_collect_buckets
 	_refresh_nft_sets
 	publish_domains
