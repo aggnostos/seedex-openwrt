@@ -186,6 +186,10 @@ while true; do
 	else
 		log_warn "watchdog: all interfaces unreachable"
 		seedex_dns_bootstrap 1
+		if [ "$KILL_SWITCH" -eq 0 ] && [ -n "$(route_dev)" ]; then
+			seedex_overlay_release
+			log_info "watchdog: kill switch is off, overlay traffic falls back to the WAN"
+		fi
 	fi
 
 	write_connectivity "$results" "$best" "$(seedex_probe_uplink "$PROBE_URL" "$PROBE_TIMEOUT")"

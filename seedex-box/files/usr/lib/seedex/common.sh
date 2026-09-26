@@ -549,6 +549,12 @@ seedex_overlay_route() {
 	echo "$1" >"$SEEDEX_ROUTER_STATE"
 }
 
+seedex_overlay_release() {
+	ip route replace throw default table "$SEEDEX_ROUTE_TABLE"
+	ip -6 route replace throw default table "$SEEDEX_ROUTE_TABLE"
+	rm -f "$SEEDEX_ROUTER_STATE"
+}
+
 seedex_router_load() {
 	config_load seedex-router
 	config_get DEFAULT_ROUTE main default_route 'direct'
