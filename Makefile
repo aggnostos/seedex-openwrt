@@ -1,13 +1,9 @@
-ARCH = $(shell sed -n 's/^ARCH="\([^"]*\)".*/\1/p' build.sh)
 PART ?= patch
 
-.PHONY: build install bump lint clean
+.PHONY: build bump lint clean
 
 build:
 	./build.sh
-
-install:
-	sh install.sh build/$(ARCH)/*.apk
 
 bump:
 	@old=$$(cat version); \
