@@ -553,7 +553,7 @@ replace them with 'sdx import --force', or remove them with 'sdx router remove'"
 }
 
 svc_status() {
-	local mode kill winterval idx name type pin enabled url lpath domains clients n src
+	local mode kill winterval idx name type pin enabled url lpath domains clients n src named=0
 	seedex_status_header router "Router"
 	mode=$(uci -q get seedex-router.main.default_route)
 	winterval=$(uci -q get seedex-router.main.watchdog_interval)
@@ -582,6 +582,7 @@ svc_status() {
 		src=""
 		[ "$n" -eq 0 ] || src="$n domains"
 		[ -z "$url$lpath" ] || src="${src:+$src + }list"
+		[ "$enabled" != 1 ] || [ -z "$domains$url$lpath" ] || named=1
 		n=0
 		for _ in $clients; do n=$((n + 1)); done
 		[ "$n" -eq 0 ] || src="$n clients"
@@ -589,6 +590,10 @@ svc_status() {
 			"${name:-#$idx}" "$type" "$src"
 		idx=$((idx + 1))
 	done
+	[ "$named" = 0 ] || seedex_service_up dns || {
+		seedex_service_enabled dns && n=start || n=enable
+		echo "  Domains match only through seedex-dns, which is not running: sdx dns $n"
+	}
 }
 
 svc_help() {
