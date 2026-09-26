@@ -135,6 +135,16 @@ opkg)
 	;;
 esac
 [ "$awg_ok" = 1 ] || warn "cannot fetch the amneziawg feed key — skipping the amneziawg feed"
+if [ "$awg_ok" = 1 ]; then
+	case "$PM" in
+	apk) awg_index="$AWG_FEED/$release/$target/packages.adb" ;;
+	opkg) awg_index="$AWG_FEED/$release/$target/Packages.gz" ;;
+	esac
+	wget -q --spider "$awg_index" 2>/dev/null || {
+		awg_ok=0
+		warn "the amneziawg feed has no build for OpenWrt $release on $target yet — skipping it"
+	}
+fi
 [ "$seedex_key_ok" = 1 ] || {
 	warn "$SEEDEX_KEY_NAME is neither trusted on this box nor in keys/ beside the package directory;"
 	warn "the local package will install without signature checks"
@@ -174,7 +184,7 @@ $PM update || {
 
 log "installing amneziawg"
 if [ "$awg_ok" = 0 ]; then
-	warn "amneziawg skipped — rerun once $AWG_FEED is reachable. Plain WireGuard configs still work."
+	warn "amneziawg skipped — rerun install.sh later. Plain WireGuard configs still work."
 else
 	case "$PM" in
 	apk) awg_cmd="apk add --upgrade --latest kmod-amneziawg amneziawg-tools" ;;
