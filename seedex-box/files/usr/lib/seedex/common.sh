@@ -571,8 +571,9 @@ SEEDEX_ROUTER_NFT_TABLE="seedex_router"
 SEEDEX_ROUTER_OVERLAY_DYN="overlay_dyn"
 SEEDEX_ROUTER_DIRECT_DYN="direct_dyn"
 
-SEEDEX_IPV4_RE='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$'
-SEEDEX_IPV6_RE='^[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(/[0-9]+)?$'
+_SEEDEX_OCTET='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+SEEDEX_IPV4_RE="^$_SEEDEX_OCTET(\\.$_SEEDEX_OCTET){3}(/(3[0-2]|[12]?[0-9]))?\$"
+SEEDEX_IPV6_RE='^[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(/(12[0-8]|1[01][0-9]|[1-9]?[0-9]))?$'
 
 seedex_resolve() {
 	local domain="$1" family="${2:-4}" re result

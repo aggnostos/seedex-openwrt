@@ -193,19 +193,31 @@ load_nft_set() {
 	local count
 	count=$(wc -l <"$ipfile" | tr -d ' ')
 	[ "$count" -gt 0 ] 2>/dev/null || return 0
-	if awk -v tbl="$NFT_TABLE" -v set="$setname" -v chunk="$NFT_SET_CHUNK" '
+	if _nft_set_batch "$setname" "$NFT_SET_CHUNK" <"$ipfile" | nft -f - 2>/dev/null; then
+		log_debug "loaded $count entries into $setname"
+		return 0
+	fi
+	local bad=0 batch entry
+	while read -r batch; do
+		printf '%s\n' "$batch" | nft -f - 2>/dev/null && continue
+		for entry in $(printf '%s\n' "$batch" | sed 's/^[^{]*{ //;s/ }$//;s/,//g'); do
+			nft add element inet "$NFT_TABLE" "$setname" "{ $entry }" 2>/dev/null || bad=$((bad + 1))
+		done
+	done <<EOF
+$(_nft_set_batch "$setname" 100 <"$ipfile")
+EOF
+	log_warn "$setname: skipped $bad of $count entries that nft rejected"
+}
+
+_nft_set_batch() {
+	awk -v tbl="$NFT_TABLE" -v set="$1" -v chunk="$2" '
 		NF {
 			if (n == 0) printf "add element inet %s %s { ", tbl, set
 			else printf ", "
 			printf "%s", $0
 			if (++n >= chunk) { print " }"; n = 0 }
 		}
-		END { if (n > 0) print " }" }
-	' "$ipfile" | nft -f - 2>/dev/null; then
-		log_debug "loaded $count entries into $setname"
-	else
-		log_err "failed to load entries into $setname"
-	fi
+		END { if (n > 0) print " }" }'
 }
 
 _type_active() {
