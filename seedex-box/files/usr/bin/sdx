@@ -433,6 +433,8 @@ cmd_help() {
 	echo "  add <name> k=v ...            Add a rule; vpn and proxy take files via 'sdx import'"
 	echo "  update <#|name> k=v ...       Modify a rule"
 	echo "  enable | disable <#|name ...> Toggle entries (without one: the service)"
+	echo "  reserve | unreserve <#|name ...>"
+	echo "                                Keep vpn and proxy configs for pinned rules only"
 	echo "  remove <#|name ...>           Remove entries"
 	echo "  export                        Print the entries for 'sdx import'"
 	echo "  reset                         Drop every entry and its stored data"
@@ -454,9 +456,10 @@ cmd_help() {
 	echo "  version                       Show version"
 	echo "  help                          This text"
 	echo
-	echo "Changes made by add, update, enable, disable, remove, import and config"
-	echo "are pending until 'sdx apply', which saves them and restarts the service;"
-	echo "'sdx revert' drops them."
+	echo "Changes to entries made by add, update, enable, disable, reserve, unreserve,"
+	echo "remove, import and config are pending until 'sdx apply', which saves them"
+	echo "and restarts the service; 'sdx revert' drops them. enable and disable"
+	echo "without an entry act on the service at once."
 }
 
 cmd_svc_help() {
