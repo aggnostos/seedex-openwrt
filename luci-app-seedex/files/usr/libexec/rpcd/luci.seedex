@@ -81,12 +81,21 @@ do_run() {
 	fi
 }
 
+_file_name() {
+	local base="$1" ext=""
+	case "$base" in
+	?*.*)
+		ext=$(printf '%s' "${base##*.}" | tr -cd 'A-Za-z0-9')
+		base="${base%.*}"
+		;;
+	esac
+	base=$(printf '%s' "$base" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^[-.]*//; s/-*$//; s/--*/-/g')
+	printf '%s%s\n' "${base:-config}" "${ext:+.$ext}"
+}
+
 do_import() {
 	local name dir
-	name=$(_field name)
-	case "$name" in
-	"" | .* | */* | *[!A-Za-z0-9._-]*) _error "invalid config name" ;;
-	esac
+	name=$(_file_name "$(_field name)")
 
 	dir=$(mktemp -d)
 	chmod 700 "$dir"
