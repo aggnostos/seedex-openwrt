@@ -12,6 +12,13 @@ SEEDEX_APK_KEY=seedex-feed.pem
 SEEDEX_OPKG_KEY=seedex-feed.pub
 AWG_APK_KEY=awg-openwrt-2grey.pem
 
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[warn]\033[0m %s\n' "$*" >&2; }
+die() {
+	printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2
+	exit 1
+}
+
 LUCI=1
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -23,13 +30,6 @@ while [ $# -gt 0 ]; do
 done
 PKGS=""
 LOCAL_KEY=""
-
-log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[warn]\033[0m %s\n' "$*" >&2; }
-die() {
-	printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2
-	exit 1
-}
 
 [ "$(id -u)" = "0" ] || die "run as root"
 if command -v apk >/dev/null 2>&1; then
