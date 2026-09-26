@@ -46,10 +46,19 @@ _resolver() {
 	esac
 }
 
-_lan_device() {
-	local dev
-	dev=$(ubus call network.interface.lan status 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null)
-	printf '%s\n' "${dev:-br-lan}"
+_lan_devices() {
+	local idx=0 name net dev devs=""
+	while uci -q get "firewall.@zone[$idx]" >/dev/null; do
+		name=$(uci -q get "firewall.@zone[$idx].name")
+		if [ "$name" != wan ]; then
+			for net in $(uci -q get "firewall.@zone[$idx].network"); do
+				dev=$(ubus call "network.interface.$net" status 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null)
+				[ -z "$dev" ] || devs="${devs:+$devs, }\"$dev\""
+			done
+		fi
+		idx=$((idx + 1))
+	done
+	printf '%s\n' "${devs:-\"br-lan\"}"
 }
 
 DNSMASQ_LINE_MAX=900
@@ -171,17 +180,17 @@ _write_upstream_ips() {
 
 _setup_intercept() {
 	local lan
-	lan=$(_lan_device)
+	lan=$(_lan_devices)
 	nft -f - <<EOT || return 1
 table inet ${NFT_TABLE} {
   chain dns_redirect {
     type nat hook prerouting priority dstnat - 5; policy accept;
-    iifname "${lan}" meta l4proto { tcp, udp } th dport 53 redirect
+    iifname { ${lan} } meta l4proto { tcp, udp } th dport 53 redirect
   }
   chain dns_block {
     type filter hook forward priority filter; policy accept;
-    iifname "${lan}" tcp dport 853 reject with tcp reset
-    iifname "${lan}" udp dport 853 reject
+    iifname { ${lan} } tcp dport 853 reject with tcp reset
+    iifname { ${lan} } udp dport 853 reject
   }
 }
 EOT
