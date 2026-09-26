@@ -298,9 +298,27 @@ _seedex_find_wan_zone() {
 	return 1
 }
 
+SEEDEX_UCI_DELTA_DIR=/tmp/.uci
+
+_seedex_fw_stash() {
+	[ "${SEEDEX_FW_STASHED:-0}" = 0 ] || return 0
+	SEEDEX_FW_STASHED=1
+	[ -s "$SEEDEX_UCI_DELTA_DIR/firewall" ] || return 0
+	mkdir -p "$SEEDEX_RUNDIR"
+	mv "$SEEDEX_UCI_DELTA_DIR/firewall" "$SEEDEX_RUNDIR/firewall.delta"
+}
+
+_seedex_fw_unstash() {
+	SEEDEX_FW_STASHED=0
+	[ -f "$SEEDEX_RUNDIR/firewall.delta" ] || return 0
+	mkdir -p "$SEEDEX_UCI_DELTA_DIR"
+	mv "$SEEDEX_RUNDIR/firewall.delta" "$SEEDEX_UCI_DELTA_DIR/firewall"
+}
+
 _seedex_fw_add_device() {
 	local iface="$1"
 	local idx
+	_seedex_fw_stash
 	idx=$(_seedex_find_wan_zone) || {
 		log_err "firewall: wan zone not found"
 		return 1
@@ -317,6 +335,7 @@ _seedex_fw_add_device() {
 _seedex_fw_del_device() {
 	local iface="$1"
 	local idx
+	_seedex_fw_stash
 	idx=$(_seedex_find_wan_zone) || return 0
 
 	uci del_list "firewall.@zone[$idx].device=$iface" 2>/dev/null
@@ -325,11 +344,13 @@ _seedex_fw_del_device() {
 }
 
 _seedex_fw_apply() {
-	[ "${SEEDEX_FW_DIRTY:-0}" = 1 ] || return 0
-	SEEDEX_FW_DIRTY=0
-	uci commit firewall
-	fw4 reload 2>/dev/null
-	log_debug "firewall: applied"
+	if [ "${SEEDEX_FW_DIRTY:-0}" = 1 ]; then
+		SEEDEX_FW_DIRTY=0
+		uci commit firewall
+		fw4 reload 2>/dev/null
+		log_debug "firewall: applied"
+	fi
+	_seedex_fw_unstash
 }
 
 seedex_nat_enable() {
