@@ -626,6 +626,18 @@ _rule_domains() {
 	rm -f "$raw" "${raw}.ok"
 }
 
+_flush_dyn() {
+	local set
+	case "$1" in
+	overlay) set="$NFT_OVERLAY_DYN" ;;
+	direct) set="$NFT_DIRECT_DYN" ;;
+	pin*) set="${1}_dyn" ;;
+	*) return 0 ;;
+	esac
+	nft flush set inet "$NFT_TABLE" "$set" 2>/dev/null
+	nft flush set inet "$NFT_TABLE" "${set}6" 2>/dev/null
+}
+
 publish_domains() {
 	local rule_type dest
 	mkdir -p "$SEEDEX_ROUTER_DOMAINS_DIR"
@@ -638,6 +650,7 @@ publish_domains() {
 		else
 			: >"$dest.new"
 		fi
+		[ ! -f "$dest" ] || cmp -s "$dest.new" "$dest" || _flush_dyn "$rule_type"
 		mv "$dest.new" "$dest"
 	done
 	/etc/init.d/seedex-dns reload 2>/dev/null
