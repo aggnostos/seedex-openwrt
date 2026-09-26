@@ -9,8 +9,8 @@ wg_has_params() {
 }
 
 wg_field() {
-	local file="$1" key="$2"
-	awk -v want="$key" '
+	local file="$1" key="$2" all="${3:-0}"
+	awk -v want="$key" -v all="$all" '
 		BEGIN { want = tolower(want) }
 		/^[[:space:]]*\[/ { section = tolower($0) }
 		{
@@ -20,9 +20,10 @@ wg_field() {
 			k = line; sub(/[[:space:]]*=.*$/, "", k); gsub(/^[[:space:]]+|[[:space:]]+$/, "", k)
 			if (tolower(k) != want) next
 			v = line; sub(/^[^=]*=[[:space:]]*/, "", v); gsub(/[[:space:]]+$/, "", v)
-			print v
-			exit
-		}' "$file"
+			if (!all) { print v; exit }
+			out = out (out == "" ? "" : ",") v
+		}
+		END { if (all && out != "") print out }' "$file"
 }
 
 wg_endpoints() {
@@ -64,7 +65,7 @@ wg_up() {
 		log_err "config '$name': $tool not installed"
 		return 1
 	}
-	address=$(wg_field "$config" Address)
+	address=$(wg_field "$config" Address 1)
 	[ -n "$address" ] || {
 		log_err "config '$name': no Address in '$config'"
 		return 1
