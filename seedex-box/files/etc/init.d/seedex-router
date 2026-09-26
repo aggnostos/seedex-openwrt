@@ -498,12 +498,12 @@ $(_pin_sets)
     ip6 daddr @block_ips6 drop
     ip daddr @endpoint_ips accept
     ip6 daddr @endpoint_ips6 accept
-$(_pin_rules prerouting)
     ether saddr @client_direct_mac accept
-    ether saddr @client_overlay_mac meta mark set ${FWMARK} accept
     ip saddr @client_direct_ip accept
-    ip saddr @client_overlay_ip meta mark set ${FWMARK} accept
     ip6 saddr @client_direct_ip6 accept
+$(_pin_rules prerouting)
+    ether saddr @client_overlay_mac meta mark set ${FWMARK} accept
+    ip saddr @client_overlay_ip meta mark set ${FWMARK} accept
     ip6 saddr @client_overlay_ip6 meta mark set ${FWMARK} accept
     ip daddr @${NFT_DIRECT_SET} accept
     ip daddr @${NFT_DIRECT_DYN} accept
