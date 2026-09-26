@@ -48,6 +48,15 @@ _uri_q() {
 	_uri_decode "$v"
 }
 
+_uri_q_first() {
+	local k v
+	for k in "$@"; do
+		v=$(_uri_q "$k")
+		[ -z "$v" ] || break
+	done
+	printf '%s\n' "$v"
+}
+
 _uri_fail() {
 	printf '%s\n' "$*" >&2
 	return 1
@@ -215,7 +224,7 @@ seedex_uri_outbound() {
 	[ -n "$sni" ] || sni=$(_uri_q host)
 	[ -n "$sni" ] || sni="$URI_HOST"
 	fp=$(_uri_q fp)
-	insecure=$(_uri_bool "$(_uri_q allowInsecure)$(_uri_q insecure)$(_uri_q allow_insecure)")
+	insecure=$(_uri_bool "$(_uri_q_first allowInsecure insecure allow_insecure)")
 	type=$(_uri_q type)
 	path=$(_uri_q path)
 	host=$(_uri_q host)
