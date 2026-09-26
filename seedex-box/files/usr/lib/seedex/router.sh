@@ -553,7 +553,7 @@ replace them with 'sdx import --force', or remove them with 'sdx router remove'"
 }
 
 svc_status() {
-	local mode kill winterval idx name type pin enabled url lpath domains clients n src named=0
+	local mode kill winterval idx name type pin enabled url lpath domains ips clients n src named=0
 	seedex_status_header router "Router"
 	mode=$(uci -q get seedex-router.main.default_route)
 	winterval=$(uci -q get seedex-router.main.watchdog_interval)
@@ -576,11 +576,15 @@ svc_status() {
 		url=$(uci -q get "seedex-router.@rule[$idx].list_url")
 		lpath=$(uci -q get "seedex-router.@rule[$idx].list_path")
 		domains=$(uci -q get "seedex-router.@rule[$idx].domain")
+		ips=$(uci -q get "seedex-router.@rule[$idx].ip")
 		clients="$(uci -q get "seedex-router.@rule[$idx].client_mac") $(uci -q get "seedex-router.@rule[$idx].client_ip")"
 		n=0
 		for _ in $domains; do n=$((n + 1)); done
 		src=""
 		[ "$n" -eq 0 ] || src="$n domains"
+		n=0
+		for _ in $ips; do n=$((n + 1)); done
+		[ "$n" -eq 0 ] || src="${src:+$src + }$n IPs"
 		[ -z "$url$lpath" ] || src="${src:+$src + }list"
 		[ "$enabled" != 1 ] || [ -z "$domains$url$lpath" ] || named=1
 		n=0
