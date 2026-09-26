@@ -301,20 +301,10 @@ _reset_sections() {
 	local config="$1"
 	shift
 
-	local type i line
+	local type
 	for type in "$@"; do
-		i=0
-		while [ "$i" -lt 100 ] && uci -q get "${config}.@${type}[0]" >/dev/null 2>&1; do
-			uci delete "${config}.@${type}[0]"
-			i=$((i + 1))
-		done
-
-		i=0
-		while [ "$i" -lt 100 ]; do
-			line=$(uci -N -q show "$config" 2>/dev/null | grep "=${type}\$" | head -1)
-			[ -n "$line" ] || break
-			uci delete "${line%%=*}"
-			i=$((i + 1))
+		while uci -q get "${config}.@${type}[0]" >/dev/null 2>&1; do
+			uci delete "${config}.@${type}[0]" || break
 		done
 	done
 
