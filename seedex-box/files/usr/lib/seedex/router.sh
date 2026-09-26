@@ -441,6 +441,39 @@ svc_export() {
 		     else { domain: ($f[6] | words), ip: ($f[7] | words) } end) ]'
 }
 
+_import_check() {
+	local file="$1" bad v name sid existing
+	bad=$(jq -r '.[]?
+		| select(((.client_mac // []) + (.client_ip // []) | length) > 0)
+		| select(((.domain // []) + (.ip // []) | length) > 0 or (.list_url // "") != "" or (.list_path // "") != "")
+		| .name' "$file" | tr '\n' ' ')
+	[ -z "$bad" ] || die "a rule matches either clients or destinations, not both: ${bad% }"
+	bad=$(jq -r '.[]? | select(.type == "block" and ((.client_mac // []) + (.client_ip // []) | length) > 0) | .name' "$file" | tr '\n' ' ')
+	[ -z "$bad" ] || die "block rules match destinations, not clients: ${bad% }"
+	bad=$(jq -r '.[]? | .name' "$file" | while IFS= read -r name; do
+		printf '%s %s\n' "$(_uci_sanitize_id "$name")" "$name"
+	done | awk -v q="'" '{
+		id = $1; sub(/^[^ ]* /, "")
+		names[id] = names[id] (cnt[id]++ ? ", " : "") q $0 q
+	} END { for (id in cnt) if (cnt[id] > 1) print names[id] }')
+	[ -z "$bad" ] || die "these rule names map to one UCI id, rename all but one: $bad"
+	for v in $(jq -r '.[]? | .client_mac[]?' "$file"); do
+		_check_mac "$v"
+	done
+	for v in $(jq -r '.[]? | .client_ip[]?' "$file"); do
+		_check_client_ip "$v"
+	done
+	while IFS= read -r name; do
+		[ -n "$name" ] || continue
+		sid=$(_uci_sanitize_id "$name")
+		existing=$(uci -q get "${SVC_ID}.${sid}.name")
+		[ -z "$existing" ] || [ "$existing" = "$name" ] ||
+			die "rule '$name' collides with the existing rule '$existing' (both are UCI id '$sid')"
+	done <<EOF
+$(jq -r '.[]? | .name' "$file")
+EOF
+}
+
 svc_import_file() {
 	local file="$1" tab sep records pinned
 	local name type enabled url lpath refresh domains ips macs clients iface sid d verb
@@ -461,6 +494,7 @@ svc_import_file() {
 	' "$file" 2>/dev/null) || die "cannot parse '$file' — not a valid rules export"
 	pinned=$(jq -r '.[]? | select((.iface // "") != "" and .type != "overlay") | .name' "$file" | tr '\n' ' ')
 	[ -z "$pinned" ] || die "iface= pins a rule to a tunnel, so its type is overlay: ${pinned% }"
+	_import_check "$file"
 
 	# Refuse the whole file before touching anything, so an import never
 	# leaves half of its rules applied.
@@ -507,7 +541,7 @@ replace them with 'sdx import --force', or remove them with 'sdx router remove'"
 			for d in $ips; do
 				uci add_list "${SVC_ID}.${sid}.ip=${d}"
 			done
-			for d in $macs; do
+			for d in $(printf '%s' "$macs" | tr 'A-F' 'a-f'); do
 				uci add_list "${SVC_ID}.${sid}.client_mac=${d}"
 			done
 			for d in $clients; do
