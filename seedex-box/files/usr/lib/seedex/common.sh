@@ -639,7 +639,7 @@ seedex_dns_bootstrap() {
 	local ip v4="" v6=""
 	nft flush set inet seedex_router dns_bootstrap 2>/dev/null
 	nft flush set inet seedex_router dns_bootstrap6 2>/dev/null
-	[ "$1" = 1 ] || return 0
+	[ "$1" = 1 ] || [ "$(uci -q get seedex-dns.main.upstream)" = provider ] || return 0
 	for ip in $(seedex_dns_upstream_ips); do
 		case "$ip" in
 		*:*) v6="${v6:+$v6, }$ip" ;;
