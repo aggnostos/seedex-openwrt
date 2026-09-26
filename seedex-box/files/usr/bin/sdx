@@ -153,7 +153,7 @@ _read_overlay() {
 	OVERLAY_FRESH=1
 	if [ "$_n" -eq 0 ]; then
 		OVERLAY_REASON="no_interfaces"
-	elif [ "$_ok" -eq 0 ]; then
+	elif [ "$_ok" -eq 0 ] || [ -z "$_active" ]; then
 		OVERLAY_REASON="all_unreachable"
 	else
 		OVERLAY_AVAIL=1
