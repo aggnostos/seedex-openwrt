@@ -492,9 +492,11 @@ _seedex_pin_rules() {
 	ip -6 rule del fwmark "$mark" priority "$SEEDEX_PIN_PRIO" 2>/dev/null
 	ip rule del fwmark "$mark" priority "$((SEEDEX_PIN_PRIO + 2))" 2>/dev/null
 	ip -6 rule del fwmark "$mark" priority "$((SEEDEX_PIN_PRIO + 2))" 2>/dev/null
-	[ "$op" = add ] || return 0
-	ip rule add fwmark "$mark" table "$table" priority "$SEEDEX_PIN_PRIO" 2>/dev/null
-	ip -6 rule add fwmark "$mark" table "$table" priority "$SEEDEX_PIN_PRIO" 2>/dev/null
+	[ "$op" != del ] || return 0
+	if [ "$op" = add ]; then
+		ip rule add fwmark "$mark" table "$table" priority "$SEEDEX_PIN_PRIO" 2>/dev/null
+		ip -6 rule add fwmark "$mark" table "$table" priority "$SEEDEX_PIN_PRIO" 2>/dev/null
+	fi
 	ip rule add fwmark "$mark" table "$SEEDEX_ROUTE_TABLE" priority "$((SEEDEX_PIN_PRIO + 2))" 2>/dev/null
 	ip -6 rule add fwmark "$mark" table "$SEEDEX_ROUTE_TABLE" priority "$((SEEDEX_PIN_PRIO + 2))" 2>/dev/null
 }
@@ -513,7 +515,7 @@ seedex_pin_sync() {
 		if _seedex_iface_carries "$iface" && table=$(seedex_iface_table "$iface"); then
 			_seedex_pin_rules add "$mark" "$table"
 		else
-			_seedex_pin_rules del "$mark" ""
+			_seedex_pin_rules fallback "$mark" ""
 		fi
 	done <"$SEEDEX_PINS_FILE"
 }
