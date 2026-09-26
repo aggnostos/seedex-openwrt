@@ -231,6 +231,9 @@ seedex_uri_outbound() {
 	service=$(_uri_q serviceName)
 	tls=null
 	transport=null
+	case "$URI_SCHEME:$(_uri_q headerType)" in
+	vless:http | trojan:http) _uri_fail "tcp header obfuscation (headerType=http) is not supported" || return 1 ;;
+	esac
 
 	case "$URI_SCHEME" in
 	vless)
