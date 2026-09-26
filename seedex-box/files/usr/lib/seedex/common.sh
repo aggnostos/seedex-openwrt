@@ -481,6 +481,7 @@ seedex_best_iface() {
 SEEDEX_PIN_MARK_BASE=256
 SEEDEX_PIN_MARK_MASK='0xff00'
 SEEDEX_PIN_PRIO=99
+SEEDEX_WG_FWMARK=0x200
 
 seedex_pin_mark() {
 	printf '0x%x\n' $((SEEDEX_PIN_MARK_BASE + $1))

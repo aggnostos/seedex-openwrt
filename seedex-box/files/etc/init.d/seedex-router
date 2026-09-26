@@ -513,6 +513,7 @@ $(_pin_rules prerouting)
   }
   chain output {
     type route hook output priority mangle; policy accept;
+    meta mark ${SEEDEX_WG_FWMARK} accept
     ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } accept
     ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } accept
     ip daddr @dns_bootstrap accept

@@ -90,6 +90,7 @@ wg_up() {
 		return 1
 	fi
 	rm -f "$staged"
+	"$tool" set "$iface" fwmark "$SEEDEX_WG_FWMARK"
 
 	for one in $(printf '%s' "$address" | tr ',' ' '); do
 		if ip addr add "$one" dev "$iface" 2>/dev/null; then
