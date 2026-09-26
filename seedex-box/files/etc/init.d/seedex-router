@@ -480,6 +480,7 @@ table inet ${NFT_TABLE} {
   set endpoint_ips6 { type ipv6_addr; flags interval; auto-merge; }
   set block_ips6 { type ipv6_addr; flags interval; auto-merge; }
   set dns_bootstrap { type ipv4_addr; }
+  set uplink_probe { type ipv4_addr; flags timeout; timeout 1h; }
   set dns_bootstrap6 { type ipv6_addr; }
   set tunnels { type ifname; }
   set client_direct_mac { type ether_addr; }
@@ -516,6 +517,7 @@ $(_pin_rules prerouting)
     ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } accept
     ip daddr @dns_bootstrap accept
     ip6 daddr @dns_bootstrap6 accept
+    ip daddr @uplink_probe accept
     ip daddr @block_ips drop
     ip6 daddr @block_ips6 drop
     ip daddr @endpoint_ips accept

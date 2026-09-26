@@ -613,8 +613,23 @@ seedex_dns_bootstrap() {
 seedex_probe_uplink() {
 	local url="${1:-$SEEDEX_PROBE_URL}"
 	local timeout="${2:-5}"
-	local out code secs
-	out=$(curl -s -o /dev/null --max-time "$timeout" \
+	local out code secs host port ip
+	host=$(printf '%s\n' "$url" | sed 's|^[A-Za-z]*://||;s|[/?#].*||')
+	case "$host" in
+	*:*) port="${host##*:}" host="${host%%:*}" ;;
+	*) case "$url" in https:*) port=443 ;; *) port=80 ;; esac ;;
+	esac
+	if printf '%s\n' "$host" | grep -qE "$SEEDEX_IPV4_RE"; then
+		ip="$host"
+	else
+		ip=$(seedex_resolve "$host" | head -1)
+	fi
+	[ -n "$ip" ] || {
+		echo 0
+		return 1
+	}
+	nft add element inet "$SEEDEX_ROUTER_NFT_TABLE" uplink_probe "{ $ip }" 2>/dev/null
+	out=$(curl -s -o /dev/null --max-time "$timeout" --resolve "$host:$port:$ip" \
 		-w '%{http_code} %{time_total}' "$url" 2>/dev/null)
 	[ -n "$out" ] || {
 		echo 0
