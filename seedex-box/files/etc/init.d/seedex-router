@@ -748,6 +748,7 @@ reapply() {
 	if _pins_changed; then
 		log_info "pinned tunnels changed, rebuilding the rule set"
 		seedex_pin_sync
+		_collect_buckets
 		setup_nftables || return 1
 		_pins_forget_dropped
 		publish_domains
