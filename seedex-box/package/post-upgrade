@@ -6,6 +6,9 @@ set -e
 
 /etc/init.d/seedex enable 2>/dev/null || true
 
+. /usr/lib/seedex/common.sh
+seedex_priority_defaults || true
+
 grep -q 'sdx link sync' /etc/crontabs/root 2>/dev/null || {
 	mkdir -p /etc/crontabs
 	echo '*/30 * * * * /usr/bin/sdx link sync >/dev/null 2>&1' >>/etc/crontabs/root

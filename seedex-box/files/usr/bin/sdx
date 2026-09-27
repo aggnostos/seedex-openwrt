@@ -465,11 +465,7 @@ cmd_priority() {
 	case "${value#-}" in
 	"" | *[!0-9]*) die "priority must be a whole number, got: $value" ;;
 	esac
-	if [ "$value" = 0 ]; then
-		_config_commit priority ""
-	else
-		_config_commit priority "$value"
-	fi
+	_config_commit priority "$value"
 	seedex_watchdog_wake
 	echo "$name: priority $value — the watchdog uses it at its next check"
 }

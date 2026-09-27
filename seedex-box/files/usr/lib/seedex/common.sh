@@ -713,6 +713,23 @@ seedex_rtt_update() {
 	seedex_rtt_medians
 }
 
+seedex_priority_defaults() {
+	local config sid
+	for config in seedex-vpn seedex-proxy; do
+		sid=$(uci -q show "$config" | awk -F'[.=]' '
+			NF == 3 && $3 == "config" { s[$2] = 1 }
+			$3 == "priority" { delete s[$2] }
+			END { for (k in s) print k }')
+		[ -n "$sid" ] || continue
+		_seedex_uci_stash "$config"
+		for sid in $sid; do
+			uci set "$config.$sid.priority=0"
+		done
+		uci commit "$config"
+		_seedex_uci_unstash "$config"
+	done
+}
+
 seedex_config_priorities() {
 	{
 		uci -q show seedex-vpn

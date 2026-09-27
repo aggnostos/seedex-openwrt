@@ -20,4 +20,7 @@ grep -q 'sdx link sync' /etc/crontabs/root 2>/dev/null || {
 
 /etc/init.d/seedex enable 2>/dev/null || true
 
+. /usr/lib/seedex/common.sh
+seedex_priority_defaults || true
+
 exit 0

@@ -107,6 +107,7 @@ rename one of the two config files"
 	uci set "seedex-proxy.${sid}=config" || die "cannot create UCI section '$sid'"
 	uci set "seedex-proxy.${sid}.name=${name}"
 	[ "$replacing" = 1 ] || uci set "seedex-proxy.${sid}.enabled=1"
+	[ -n "$(uci -q get "seedex-proxy.${sid}.priority")" ] || uci set "seedex-proxy.${sid}.priority=0"
 	uci set "seedex-proxy.${sid}.config=${dest}"
 
 	[ -z "$staged" ] || uci set "seedex-proxy.${sid}.staged=${staged}"

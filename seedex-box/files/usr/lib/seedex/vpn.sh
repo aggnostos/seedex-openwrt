@@ -115,6 +115,7 @@ rename one of the two config files"
 	uci set "seedex-vpn.${sid}.name=${name}"
 	uci set "seedex-vpn.${sid}.proto=${proto}"
 	[ "$replacing" = 1 ] || uci set "seedex-vpn.${sid}.enabled=1"
+	[ -n "$(uci -q get "seedex-vpn.${sid}.priority")" ] || uci set "seedex-vpn.${sid}.priority=0"
 	uci set "seedex-vpn.${sid}.config=${dest}"
 
 	[ -z "$staged" ] || uci set "seedex-vpn.${sid}.staged=${staged}"
