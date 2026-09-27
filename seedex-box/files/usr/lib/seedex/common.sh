@@ -535,7 +535,6 @@ seedex_iface_reserved() {
 	seedex_all_ifaces | awk -v i="$1" '$1 == i && $4 == 1 { found = 1 } END { exit !found }'
 }
 
-
 SEEDEX_PIN_MARK_BASE=256
 SEEDEX_PIN_MARK_MASK='0xff00'
 SEEDEX_PIN_PRIO=99
