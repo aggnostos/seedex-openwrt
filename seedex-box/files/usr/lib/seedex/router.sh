@@ -3,7 +3,7 @@ SVC_NAME="router"
 # shellcheck source=files/usr/lib/seedex/service.sh
 . /usr/lib/seedex/service.sh
 SVC_SECTION="rule"
-SVC_CONFIG_KEYS="default_route kill_switch watchdog_interval watchdog_url watchdog_timeout"
+SVC_CONFIG_KEYS="default_route kill_switch watchdog_interval watchdog_url watchdog_timeout watchdog_mode watchdog_tolerance watchdog_checks"
 
 SVC_ACTIONS="start stop restart show add update enable disable remove config changes apply revert export reset"
 
@@ -553,14 +553,18 @@ replace them with 'sdx import --force', or remove them with 'sdx router remove'"
 }
 
 svc_status() {
-	local mode kill winterval idx name type pin enabled url lpath domains ips clients n src named=0
+	local mode kill wmode idx name type pin enabled url lpath domains ips clients n src named=0
 	seedex_status_header router "Router"
 	mode=$(uci -q get seedex-router.main.default_route)
-	winterval=$(uci -q get seedex-router.main.watchdog_interval)
 	kill=$(uci -q get seedex-router.main.kill_switch)
 	printf '  %-13s %s\n' "Routing:" "${mode:-overlay}"
 	printf '  %-13s %s\n' "Kill switch:" "$([ "${kill:-1}" = 0 ] && echo off || echo on)"
-	printf '  %-13s every %ss\n' "Watchdog:" "${winterval:-30}"
+	wmode=$(uci -q get seedex-router.main.watchdog_mode)
+	case "$wmode" in
+	failover | priority) ;;
+	*) wmode=fastest ;;
+	esac
+	printf '  %-13s %s\n' "Watchdog:" "$wmode"
 	if ! uci -q get "seedex-router.@rule[0]" >/dev/null 2>&1; then
 		printf '  %-13s none\n' "Rules:"
 		return 0

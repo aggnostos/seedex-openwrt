@@ -36,25 +36,56 @@ switch_to() {
 	fi
 }
 
-SWITCH_MIN_GAIN_PCT=10
-SWITCH_MIN_GAIN_MS=20
+WIN_IFACE=""
+WIN_COUNT=0
 
+_win_reset() {
+	WIN_IFACE=""
+	WIN_COUNT=0
+}
+
+# Sets PICKED instead of printing it: the win counter must outlive the call.
 pick_active() {
-	local results="$1" current best best_rtt current_rtt
+	local smoothed cand cand_rtt cand_prio current current_rtt current_prio
+	PICKED=""
+	smoothed=$(seedex_rtt_update "$1")
+	cand=$(printf '%s\n' "$smoothed" | seedex_pick_candidate)
+	[ -n "$cand" ] || {
+		_win_reset
+		return 0
+	}
+	# shellcheck disable=SC2086
+	set -- $cand
+	cand="$1" cand_rtt="$2" cand_prio="$3"
 	current=$(seedex_active_iface)
 	! seedex_iface_reserved "$current" || current=""
-	best=$(echo "$results" | seedex_best_iface)
-	[ -n "$best" ] || return 0
-	best_rtt="${best#* }"
-	best="${best%% *}"
-	current_rtt=$(echo "$results" | awk -v i="$current" 'NF == 2 && $1 == i { print $2; exit }')
-	if [ -n "$current_rtt" ] && [ "$current" != "$best" ] &&
-		{ [ "$((best_rtt * 100))" -gt "$((current_rtt * (100 - SWITCH_MIN_GAIN_PCT)))" ] ||
-			[ "$((current_rtt - best_rtt))" -lt "$SWITCH_MIN_GAIN_MS" ]; }; then
-		echo "$current"
-	else
-		echo "$best"
+	current_rtt=$(printf '%s\n' "$smoothed" | awk -v i="$current" '$1 == i { print $2; exit }')
+	current_prio=$(seedex_iface_priorities | awk -v i="$current" '$1 == i { print $2; exit }')
+
+	if [ -z "$current_rtt" ] || [ "$cand" = "$current" ]; then
+		PICKED="$cand"
+		_win_reset
+		return 0
 	fi
+	PICKED="$current"
+	case "$WATCHDOG_MODE" in
+	failover) false ;;
+	priority) [ "$cand_prio" -gt "${current_prio:-0}" ] ;;
+	*) [ "$((current_rtt - cand_rtt))" -gt "$WATCHDOG_TOLERANCE" ] ;;
+	esac || {
+		_win_reset
+		return 0
+	}
+	if [ "$cand" = "$WIN_IFACE" ]; then
+		WIN_COUNT=$((WIN_COUNT + 1))
+	else
+		WIN_IFACE="$cand"
+		WIN_COUNT=1
+	fi
+	[ "$WIN_COUNT" -ge "$WATCHDOG_CHECKS" ] || return 0
+	log_info "watchdog: $cand won $WIN_COUNT checks in a row ($WATCHDOG_MODE)"
+	PICKED="$cand"
+	_win_reset
 }
 
 write_connectivity() {
@@ -198,7 +229,7 @@ while true; do
 		log_info "tunnels changed, reapplying rules"
 		/etc/init.d/seedex-router reapply
 		if [ -z "$(route_dev)" ]; then
-			best=$(echo "$results" | seedex_best_iface | awk '{ print $1 }')
+			best=$(seedex_rtt_medians | seedex_pick_candidate | awk '{ print $1 }')
 			[ -z "$best" ] || {
 				switch_to "$best"
 				write_connectivity \
@@ -210,7 +241,8 @@ while true; do
 	fi
 
 	results=$(seedex_probe_all_ifaces "$PROBE_URL" "$PROBE_TIMEOUT")
-	best=$(pick_active "$results")
+	pick_active "$results"
+	best="$PICKED"
 
 	if [ -n "$best" ]; then
 		switch_to "$best"

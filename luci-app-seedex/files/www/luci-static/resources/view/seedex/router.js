@@ -16,7 +16,15 @@ var SETTINGS = [
 	             [ '0', _('off — it falls back to the WAN') ] ] },
 	{ key: 'watchdog_interval', label: _('Watchdog interval'), placeholder: '30', hint: _('seconds') },
 	{ key: 'watchdog_timeout', label: _('Watchdog timeout'), placeholder: '5', hint: _('seconds') },
-	{ key: 'watchdog_url', label: _('Watchdog URL'), placeholder: 'https://www.gstatic.com/generate_204' }
+	{ key: 'watchdog_url', label: _('Watchdog URL'), placeholder: 'https://www.gstatic.com/generate_204' },
+	{ key: 'watchdog_mode', label: _('Tunnel choice'),
+	  options: [ [ 'fastest', _('fastest — move to a clearly faster tunnel') ],
+	             [ 'priority', _('priority — move to a tunnel of higher priority, never for speed') ],
+	             [ 'failover', _('failover — stay on a tunnel until it fails') ] ] },
+	{ key: 'watchdog_tolerance', label: _('Switch margin'), placeholder: '100',
+	  hint: _('ms: in fastest mode, another tunnel must be faster by more than this') },
+	{ key: 'watchdog_checks', label: _('Switch checks'), placeholder: '3',
+	  hint: _('probes in a row the better tunnel must win before the switch') }
 ];
 
 function splitList(text) {

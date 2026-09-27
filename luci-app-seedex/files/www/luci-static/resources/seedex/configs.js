@@ -64,6 +64,7 @@ return baseclass.extend({
 					entrySettings.forEach(function(k) {
 						cells.push(s[k.key] || '—');
 					});
+					cells.push(s.priority || '0');
 					cells.push((s.config || '').split('/').pop() || '—');
 					cells.push(E('div', {}, [
 						api.button(_('Edit'), 'cbi-button-action', function() {
@@ -91,7 +92,7 @@ return baseclass.extend({
 
 				var titles = [ '', _('Name') ].concat(entrySettings.map(function(k) {
 					return k.label;
-				}), [ _('File'), '' ]);
+				}), [ _('Priority'), _('File'), '' ]);
 
 				return E('div', { 'class': 'cbi-section' }, [
 					E('h3', {}, _('Configs')),
@@ -137,6 +138,9 @@ return baseclass.extend({
 						inputs[k.key] = api.input(s[k.key], k.placeholder);
 						return api.field(k.label, inputs[k.key], k.hint);
 					});
+					var priority = api.input(s.priority || '0', '0');
+					fields.push(api.field(_('Priority'), priority,
+						_('The watchdog prefers answering tunnels of higher priority. Takes effect at once.')));
 
 					ui.showModal(name, fields.concat([
 						api.field(_('Contents'), content, note),
@@ -167,6 +171,12 @@ return baseclass.extend({
 							else {
 								task = Promise.resolve();
 							}
+
+							var newPriority = priority.value.trim() || '0';
+							if (newPriority !== (s.priority || '0'))
+								task = task.then(function() {
+									return api.run('', 'priority', [ name, newPriority ]);
+								});
 
 							return task.then(ui.hideModal, api.fail).then(refresh);
 						}, self)

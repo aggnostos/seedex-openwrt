@@ -669,9 +669,10 @@ _dns_wait() {
 	return 1
 }
 
-_fastest_iface() {
+_initial_iface() {
 	local best
-	best=$(seedex_probe_all_ifaces "$@" | seedex_best_iface | awk '{ print $1 }')
+	rm -f "$SEEDEX_RTT_HISTORY"
+	best=$(seedex_rtt_update "$(seedex_probe_all_ifaces "$@")" | seedex_pick_candidate | awk '{ print $1 }')
 	[ -n "$best" ] || return 1
 	echo "$best"
 }
@@ -688,7 +689,7 @@ setup_policy_routing() {
 
 	local active
 	seedex_dns_bootstrap 1
-	active=$(_fastest_iface "$PROBE_URL" "$PROBE_TIMEOUT")
+	active=$(_initial_iface "$PROBE_URL" "$PROBE_TIMEOUT")
 
 	if [ -z "$active" ]; then
 		log_warn "no reachable interfaces, routing deferred to watchdog"

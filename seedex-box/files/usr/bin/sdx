@@ -425,6 +425,55 @@ cmd_apply() {
 	[ "$did" = 1 ] || echo "nothing to apply"
 }
 
+_config_ref() {
+	local owners
+	owners=$(seedex_config_priorities | awk -v n="$1" '$2 == n { print $1 }')
+	case "$owners" in
+	"") die "no vpn or proxy config named '$1' — see 'sdx vpn show' and 'sdx proxy show'" ;;
+	*[!a-z]*) die "both a vpn and a proxy config are named '$1' — rename one of them" ;;
+	esac
+	CONFIG="seedex-$owners"
+	SID=$(uci -q show "$CONFIG" | awk -F'[.=]' -v n="'$1'" '$3 == "name" && substr($0, index($0, "=") + 1) == n { print $2; exit }')
+}
+
+_config_commit() {
+	_seedex_uci_stash "$CONFIG"
+	if [ -z "$2" ]; then
+		uci -q delete "$CONFIG.$SID.$1"
+	else
+		uci set "$CONFIG.$SID.$1=$2"
+	fi
+	uci commit "$CONFIG"
+	_seedex_uci_unstash "$CONFIG"
+}
+
+cmd_priority() {
+	local name="${1:-}" value="${2:-}"
+	if [ -z "$name" ]; then
+		seedex_config_priorities | sort -k3,3nr -k2,2 | awk '
+			BEGIN { printf "%-24s %-6s %s\n", "Config", "Type", "Priority" }
+			{ printf "%-24s %-6s %s\n", $2, $1, $3; n++ }
+			END { if (!n) print "no vpn or proxy configs yet" }'
+		return 0
+	fi
+	_config_ref "$name"
+	if [ $# -lt 2 ]; then
+		printf '%s: priority %s\n' "$name" "$(uci -q get "$CONFIG.$SID.priority" || echo 0)"
+		return 0
+	fi
+	case "${value#-}" in
+	"" | *[!0-9]*) die "priority must be a whole number, got: $value" ;;
+	esac
+	if [ "$value" = 0 ]; then
+		_config_commit priority ""
+	else
+		_config_commit priority "$value"
+	fi
+	seedex_watchdog_wake
+	echo "$name: priority $value — the watchdog uses it at its next check"
+}
+
+
 cmd_help() {
 	echo "Usage: sdx [<service>]                      Status of the box, or of one service"
 	echo "       sdx <service> <action> [options]     service: router, vpn, proxy, dns"
@@ -460,14 +509,17 @@ cmd_help() {
 	echo "                                Import a config file, a directory of them, a proxy link,"
 	echo "                                or a subscription address; --force replaces entries"
 	echo "                                of the same name, pending until 'sdx apply'"
+	echo "  priority [<config> [<number>]]"
+	echo "                                Tunnel priority of a vpn or proxy config: higher wins,"
+	echo "                                0 by default"
 	echo "  logs                          Show seedex logs (passes args to logread)"
 	echo "  version                       Show version"
 	echo "  help                          This text"
 	echo
 	echo "Changes to entries made by add, update, enable, disable, reserve, unreserve,"
 	echo "remove, import and config are pending until 'sdx apply', which saves them"
-	echo "and restarts the service; 'sdx revert' drops them. enable and disable"
-	echo "without an entry act on the service at once."
+	echo "and restarts the service; 'sdx revert' drops them. priority acts at once,"
+	echo "as do enable and disable without an entry."
 }
 
 cmd_svc_help() {
@@ -541,6 +593,10 @@ start | stop | restart)
 	;;
 apply)
 	cmd_apply
+	;;
+priority)
+	shift
+	cmd_priority "$@"
 	;;
 *)
 	ACTION="$1"
