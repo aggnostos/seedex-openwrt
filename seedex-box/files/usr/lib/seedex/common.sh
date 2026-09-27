@@ -71,7 +71,7 @@ seedex_start_router() {
 }
 
 _seedex_config_digest() {
-	uci -q show "seedex-$1" 2>/dev/null | grep -v '\.priority=' | md5sum
+	uci -q show "seedex-$1" 2>/dev/null | grep -v '\.\(priority\|reserved\)=' | md5sum
 }
 
 seedex_config_stamp() {
@@ -276,6 +276,13 @@ seedex_watchdog_wake() {
 	return 0
 }
 
+seedex_iface_set_reserved() {
+	local iface="$1" flag="$2" owner name rest map="$SEEDEX_RUNDIR/proxy/ifaces"
+	read -r owner name rest <"$SEEDEX_IFACE_DIR/$iface" 2>/dev/null || return 0
+	_seedex_iface_write "$iface" "$owner $name $flag"
+	[ -f "$map" ] || return 0
+	awk -v i="$iface" -v f="$flag" '$1 == i { $3 = f } 1' "$map" >"$map.new" && mv "$map.new" "$map"
+}
 
 seedex_iface_name() {
 	awk 'FNR == 1 { print $2 }' "$SEEDEX_IFACE_DIR/$1" 2>/dev/null

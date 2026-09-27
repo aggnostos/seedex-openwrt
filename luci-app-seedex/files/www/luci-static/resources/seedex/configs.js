@@ -77,7 +77,7 @@ return baseclass.extend({
 						}, self),
 						' ',
 						api.button(reserved ? _('Unreserve') : _('Reserve'), 'cbi-button-neutral', function() {
-							return api.run(svc, reserved ? 'unreserve' : 'reserve', [ name ])
+							return api.run('', reserved ? 'unreserve' : 'reserve', [ name ])
 								.catch(api.fail).then(refresh);
 						}, self),
 						' ',

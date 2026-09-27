@@ -5,7 +5,7 @@ TAG="seedex"
 
 SERVICES="seedex-router seedex-vpn seedex-proxy seedex-dns"
 SEEDEX_SERVICES="router vpn proxy dns"
-SEEDEX_SVC_REQUIRED="config show add update enable disable reserve unreserve remove"
+SEEDEX_SVC_REQUIRED="config show add update enable disable remove"
 
 _lib() {
 	local path="/usr/lib/seedex/${1}.sh"
@@ -432,6 +432,7 @@ _config_ref() {
 	"") die "no vpn or proxy config named '$1' — see 'sdx vpn show' and 'sdx proxy show'" ;;
 	*[!a-z]*) die "both a vpn and a proxy config are named '$1' — rename one of them" ;;
 	esac
+	OWNER="$owners"
 	CONFIG="seedex-$owners"
 	SID=$(uci -q show "$CONFIG" | awk -F'[.=]' -v n="'$1'" '$3 == "name" && substr($0, index($0, "=") + 1) == n { print $2; exit }')
 }
@@ -473,6 +474,27 @@ cmd_priority() {
 	echo "$name: priority $value — the watchdog uses it at its next check"
 }
 
+cmd_reserve() {
+	local flag="$1" name iface
+	shift
+	[ $# -gt 0 ] || usage "sdx reserve|unreserve <config> ..."
+	for name in "$@"; do
+		_config_ref "$name"
+	done
+	for name in "$@"; do
+		_config_ref "$name"
+		if [ "$flag" = 1 ]; then
+			_config_commit reserved 1
+			echo "$name: reserved for pinned rules, out of the overlay"
+		else
+			_config_commit reserved ""
+			echo "$name: back in the overlay"
+		fi
+		iface=$(seedex_iface_for_config "$OWNER" "$name")
+		[ -z "$iface" ] || seedex_iface_set_reserved "$iface" "$flag"
+	done
+	seedex_watchdog_wake
+}
 
 cmd_help() {
 	echo "Usage: sdx [<service>]                      Status of the box, or of one service"
@@ -490,8 +512,6 @@ cmd_help() {
 	echo "  add <name> k=v ...            Add a rule; vpn and proxy take files via 'sdx import'"
 	echo "  update <#|name> k=v ...       Modify a rule"
 	echo "  enable | disable <#|name ...> Toggle entries (without one: the service)"
-	echo "  reserve | unreserve <#|name ...>"
-	echo "                                Keep vpn and proxy configs for pinned rules only"
 	echo "  remove <#|name ...>           Remove entries"
 	echo "  export                        Print the entries for 'sdx import'"
 	echo "  reset                         Drop every entry and its stored data"
@@ -512,14 +532,16 @@ cmd_help() {
 	echo "  priority [<config> [<number>]]"
 	echo "                                Tunnel priority of a vpn or proxy config: higher wins,"
 	echo "                                0 by default"
+	echo "  reserve | unreserve <config> ..."
+	echo "                                Keep vpn or proxy configs for pinned rules only"
 	echo "  logs                          Show seedex logs (passes args to logread)"
 	echo "  version                       Show version"
 	echo "  help                          This text"
 	echo
-	echo "Changes to entries made by add, update, enable, disable, reserve, unreserve,"
-	echo "remove, import and config are pending until 'sdx apply', which saves them"
-	echo "and restarts the service; 'sdx revert' drops them. priority acts at once,"
-	echo "as do enable and disable without an entry."
+	echo "Changes to entries made by add, update, enable, disable, remove, import and"
+	echo "config are pending until 'sdx apply', which saves them and restarts the"
+	echo "service; 'sdx revert' drops them. priority, reserve and unreserve act at"
+	echo "once, as do enable and disable without an entry."
 }
 
 cmd_svc_help() {
@@ -597,6 +619,14 @@ apply)
 priority)
 	shift
 	cmd_priority "$@"
+	;;
+reserve)
+	shift
+	cmd_reserve 1 "$@"
+	;;
+unreserve)
+	shift
+	cmd_reserve 0 "$@"
 	;;
 *)
 	ACTION="$1"
