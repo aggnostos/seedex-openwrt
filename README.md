@@ -35,6 +35,7 @@ Seedex is a secure network privacy layer for OpenWrt routers: VPN and Proxy, con
 ## Requirements
 
 - A router running OpenWrt 24.10.2 or later with outbound internet access.
+- Recommended: **512 MB RAM** and **100 MiB of free storage** for package installation.
 - A server running [seedex-agent](https://github.com/aggnostos/seedex-agent), WireGuard, AmneziaWG, or sing-box.
 
 ## Installation
