@@ -195,6 +195,7 @@ while true; do
 
 	write_connectivity "$results" "$best" "$(seedex_probe_uplink "$PROBE_URL" "$PROBE_TIMEOUT")"
 	seedex_pin_sync
+	seedex_lan_ra_sync
 	check_list_refresh
 
 	sleep "$WATCHDOG_INTERVAL" &

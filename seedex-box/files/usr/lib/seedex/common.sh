@@ -300,25 +300,31 @@ _seedex_find_wan_zone() {
 
 SEEDEX_UCI_DELTA_DIR=/tmp/.uci
 
-_seedex_fw_stash() {
-	[ "${SEEDEX_FW_STASHED:-0}" = 0 ] || return 0
-	SEEDEX_FW_STASHED=1
-	[ -s "$SEEDEX_UCI_DELTA_DIR/firewall" ] || return 0
+_seedex_uci_stash() {
+	case " ${SEEDEX_UCI_STASHED:-} " in
+	*" $1 "*) return 0 ;;
+	esac
+	SEEDEX_UCI_STASHED="${SEEDEX_UCI_STASHED:-} $1"
+	[ -s "$SEEDEX_UCI_DELTA_DIR/$1" ] || return 0
 	mkdir -p "$SEEDEX_RUNDIR"
-	mv "$SEEDEX_UCI_DELTA_DIR/firewall" "$SEEDEX_RUNDIR/firewall.delta"
+	mv "$SEEDEX_UCI_DELTA_DIR/$1" "$SEEDEX_RUNDIR/$1.delta"
 }
 
-_seedex_fw_unstash() {
-	SEEDEX_FW_STASHED=0
-	[ -f "$SEEDEX_RUNDIR/firewall.delta" ] || return 0
+_seedex_uci_unstash() {
+	local c rest=""
+	for c in ${SEEDEX_UCI_STASHED:-}; do
+		[ "$c" = "$1" ] || rest="$rest $c"
+	done
+	SEEDEX_UCI_STASHED="$rest"
+	[ -f "$SEEDEX_RUNDIR/$1.delta" ] || return 0
 	mkdir -p "$SEEDEX_UCI_DELTA_DIR"
-	mv "$SEEDEX_RUNDIR/firewall.delta" "$SEEDEX_UCI_DELTA_DIR/firewall"
+	mv "$SEEDEX_RUNDIR/$1.delta" "$SEEDEX_UCI_DELTA_DIR/$1"
 }
 
 _seedex_fw_add_device() {
 	local iface="$1"
 	local idx
-	_seedex_fw_stash
+	_seedex_uci_stash firewall
 	idx=$(_seedex_find_wan_zone) || {
 		log_err "firewall: wan zone not found"
 		return 1
@@ -335,7 +341,7 @@ _seedex_fw_add_device() {
 _seedex_fw_del_device() {
 	local iface="$1"
 	local idx
-	_seedex_fw_stash
+	_seedex_uci_stash firewall
 	idx=$(_seedex_find_wan_zone) || return 0
 
 	uci del_list "firewall.@zone[$idx].device=$iface" 2>/dev/null
@@ -350,7 +356,7 @@ _seedex_fw_apply() {
 		fw4 reload 2>/dev/null
 		log_debug "firewall: applied"
 	fi
-	_seedex_fw_unstash
+	_seedex_uci_unstash firewall
 }
 
 seedex_nat_enable() {
@@ -586,6 +592,45 @@ seedex_overlay_release() {
 	ip route replace throw default table "$SEEDEX_ROUTE_TABLE"
 	ip -6 route replace throw default table "$SEEDEX_ROUTE_TABLE"
 	rm -f "$SEEDEX_ROUTER_STATE"
+}
+
+_seedex_lan_has_gua() {
+	local dev
+	dev=$(ubus call network.interface.lan status 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null)
+	ip -6 addr show dev "${dev:-br-lan}" scope global 2>/dev/null |
+		awk '$1 == "inet6" && $2 !~ /^f[cd]/ { found = 1 } END { exit !found }'
+}
+
+_seedex_overlay_has_v6() {
+	ip -6 route show default table "$SEEDEX_ROUTE_TABLE" 2>/dev/null |
+		awk '$1 == "default" { found = 1 } END { exit !found }'
+}
+
+# Without native IPv6 odhcpd announces no default route, so clients never send
+# IPv6 into the overlay. A ra_default the user set stays untouched.
+seedex_lan_ra_sync() {
+	local want=0 cur ours
+	[ "${1:-}" = off ] || _seedex_lan_has_gua || ! _seedex_overlay_has_v6 || want=1
+	uci -q get dhcp.lan >/dev/null || return 0
+	cur=$(uci -q get dhcp.lan.ra_default)
+	ours=$(uci -q get dhcp.lan.seedex_ra_default)
+	if [ "$want" = 1 ]; then
+		[ -z "$cur" ] || [ "$ours" = 1 ] || return 0
+		[ "$cur" != 2 ] || return 0
+		_seedex_uci_stash dhcp
+		uci set dhcp.lan.ra_default=2
+		uci set dhcp.lan.seedex_ra_default=1
+		log_info "announcing an IPv6 default route to the LAN: the overlay carries IPv6"
+	else
+		[ "$ours" = 1 ] || return 0
+		_seedex_uci_stash dhcp
+		uci -q delete dhcp.lan.ra_default
+		uci -q delete dhcp.lan.seedex_ra_default
+		log_info "no longer announcing an IPv6 default route to the LAN"
+	fi
+	uci commit dhcp
+	_seedex_uci_unstash dhcp
+	/etc/init.d/odhcpd reload 2>/dev/null
 }
 
 seedex_router_load() {

@@ -697,11 +697,13 @@ setup_policy_routing() {
 
 	seedex_overlay_route "$active"
 	seedex_dns_bootstrap 0
+	seedex_lan_ra_sync
 
 	log_debug "policy routing via $active"
 }
 
 teardown_policy_routing() {
+	seedex_lan_ra_sync off
 	seedex_pin_clear
 	seedex_pin_clear "$PINS_FILE.old"
 	ip rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
