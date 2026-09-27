@@ -16,6 +16,8 @@
 
 Seedex is a secure network privacy layer for OpenWrt routers: VPN and Proxy, convenient routing, secured DNS, managed with a single command or the LuCI app.
 
+Its goal is to make setup and everyday management easier by bringing VPN, proxy, routing, and DNS configuration together in a single interface.
+
 > [!WARNING]
 > Seedex is under active development. Bugs are likely. Commands, settings, and behavior may change between versions. Read the release notes before you update.
 
@@ -35,7 +37,7 @@ Seedex is a secure network privacy layer for OpenWrt routers: VPN and Proxy, con
 ## Requirements
 
 - A router running OpenWrt 24.10.2 or later with outbound internet access.
-- Recommended: **512 MB RAM** and **100 MiB of free storage** for package installation.
+- Minimum requirements (provisional): **256 MB RAM** and **100 MB of free storage** for package installation.
 - A server running [seedex-agent](https://github.com/aggnostos/seedex-agent), WireGuard, AmneziaWG, or sing-box.
 
 ## Installation
@@ -126,6 +128,11 @@ If the router doesn't route traffic, use:
 ## Contributing
 
 Bug reports, suggestions, and pull requests are welcome.
+
+## Community
+
+Join the [Telegram chat (Russian-speaking)](https://t.me/seedex_net) for questions, setup help, and discussion.
+For bug reports and feature requests in English, please use [GitHub Issues](https://github.com/aggnostos/seedex-openwrt/issues).
 
 ## License
 
