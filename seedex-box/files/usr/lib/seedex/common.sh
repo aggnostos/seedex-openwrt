@@ -246,6 +246,8 @@ SEEDEX_ROUTER_STATE="$SEEDEX_RUNDIR/router/active_iface"
 
 SEEDEX_PINS_FILE="$SEEDEX_RUNDIR/router/pins"
 
+SEEDEX_WATCHDOG_PID="$SEEDEX_RUNDIR/router/watchdog.pid"
+
 SEEDEX_IFACE_DIR="$SEEDEX_RUNDIR/ifaces.d"
 
 _seedex_iface_write() {
@@ -259,6 +261,15 @@ seedex_register_iface() {
 	local iface="$1" owner="$2" name="$3" reserved="${4:-0}"
 	_seedex_iface_write "$iface" "$owner $name $reserved"
 	nft add element inet seedex_router tunnels "{ $iface }" 2>/dev/null
+	seedex_watchdog_wake
+}
+
+seedex_watchdog_wake() {
+	local pid
+	pid=$(cat "$SEEDEX_WATCHDOG_PID" 2>/dev/null)
+	[ -n "$pid" ] && grep -q seedex-router-watchdog "/proc/$pid/cmdline" 2>/dev/null &&
+		kill -USR1 "$pid" 2>/dev/null
+	return 0
 }
 
 seedex_iface_name() {
@@ -282,6 +293,7 @@ seedex_unregister_iface() {
 	seedex_probe_route_remove "$iface"
 	rm -f "$SEEDEX_IFACE_DIR/$iface"
 	nft delete element inet seedex_router tunnels "{ $iface }" 2>/dev/null
+	seedex_watchdog_wake
 }
 
 _seedex_find_wan_zone() {

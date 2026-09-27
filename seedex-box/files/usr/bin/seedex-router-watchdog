@@ -151,13 +151,35 @@ check_list_refresh() {
 }
 
 cleanup() {
+	rm -f "$SEEDEX_WATCHDOG_PID"
 	log_info "watchdog stopped"
 	exit 0
 }
 
+WAKE=0
+SLEEP_PID=""
+
+wake() {
+	WAKE=1
+	[ -z "$SLEEP_PID" ] || kill "$SLEEP_PID" 2>/dev/null
+}
+
+nap() {
+	if [ "$WAKE" = 0 ]; then
+		sleep "$1" &
+		SLEEP_PID=$!
+		[ "$WAKE" = 0 ] || kill "$SLEEP_PID" 2>/dev/null
+		wait "$SLEEP_PID"
+		SLEEP_PID=""
+	fi
+	WAKE=0
+}
+
 trap cleanup TERM INT
+trap wake USR1
 
 mkdir -p "$(dirname "$STATE_FILE")" "$LISTS_DIR" "$REFRESH_DIR"
+echo $$ >"$SEEDEX_WATCHDOG_PID"
 
 IFACES_SEEN=$(seedex_all_ifaces | md5sum)
 
@@ -165,8 +187,7 @@ log_info "watchdog started (interval=${WATCHDOG_INTERVAL}s)"
 
 write_connectivity "" "$(seedex_active_iface)" 0
 
-sleep 5 &
-wait $!
+nap 5
 
 while true; do
 	seedex_router_load
@@ -176,6 +197,16 @@ while true; do
 		IFACES_SEEN="$ifaces_now"
 		log_info "tunnels changed, reapplying rules"
 		/etc/init.d/seedex-router reapply
+		if [ -z "$(route_dev)" ]; then
+			best=$(echo "$results" | seedex_best_iface | awk '{ print $1 }')
+			[ -z "$best" ] || {
+				switch_to "$best"
+				write_connectivity \
+					"$(echo "$results" | awk -v keep=" $(seedex_active_ifaces | tr '\n' ' ') " 'index(keep, " " $1 " ")')" \
+					"$best" "$(awk '$1 == "uplink" { sub(/^uplink /, ""); print }' "$CONN_FILE" 2>/dev/null)"
+				log_info "watchdog: the active tunnel is gone, $best takes over until the next probe"
+			}
+		fi
 	fi
 
 	results=$(seedex_probe_all_ifaces "$PROBE_URL" "$PROBE_TIMEOUT")
@@ -198,6 +229,5 @@ while true; do
 	seedex_lan_ra_sync
 	check_list_refresh
 
-	sleep "$WATCHDOG_INTERVAL" &
-	wait $!
+	nap "$WATCHDOG_INTERVAL"
 done
