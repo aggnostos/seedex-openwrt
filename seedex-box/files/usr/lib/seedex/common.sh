@@ -950,3 +950,52 @@ seedex_probe_all_ifaces() {
 	done
 	rm -rf "$dir"
 }
+
+# Probes the overlay candidates at once and returns as soon as the choice is
+# settled: probes that started together finish in RTT order, so the first
+# answer wins unless a higher-priority candidate is still out. Prints the
+# finished probes as "iface rtt".
+seedex_probe_race() {
+	local url="${1:-$SEEDEX_PROBE_URL}" timeout="${2:-5}"
+	local ifaces iface dir pids="" prios deadline
+
+	ifaces=$(seedex_overlay_ifaces | tr '\n' ' ')
+	[ -n "${ifaces% }" ] || return 0
+	mkdir -p "$SEEDEX_RUNDIR"
+	dir=$(mktemp -d "$SEEDEX_RUNDIR/probe.XXXXXX") || return 1
+
+	for iface in $ifaces; do
+		(
+			rtt=$(seedex_probe_iface_rtt "$iface" "$url" "$timeout")
+			printf '%s %s\n' "$iface" "$rtt" >"$dir/.$iface"
+			mv "$dir/.$iface" "$dir/$iface"
+		) &
+		pids="$pids $!"
+	done
+
+	prios=""
+	[ "$WATCHDOG_MODE" = fastest ] || prios=$(seedex_iface_priorities | tr '\n' ' ')
+	deadline=$(($(date +%s) + timeout + 2))
+	while [ "$(date +%s)" -lt "$deadline" ]; do
+		cat "$dir"/* 2>/dev/null | awk -v all="$ifaces" -v prios="$prios" '
+			BEGIN {
+				n = split(prios, p, " ")
+				for (i = 1; i < n; i += 2) prio[p[i]] = p[i + 1] + 0
+			}
+			{ done[$1] = 1 }
+			NF >= 2 {
+				q = prio[$1] + 0
+				if (!found || q > bestq) { bestq = q; found = 1 }
+			}
+			END {
+				split(all, a, " ")
+				for (i in a) if (!(a[i] in done) && (!found || prio[a[i]] + 0 > bestq)) exit 1
+			}' && break
+		sleep 0.2 2>/dev/null || sleep 1
+	done
+
+	# shellcheck disable=SC2086
+	kill $pids 2>/dev/null
+	cat "$dir"/* 2>/dev/null
+	rm -rf "$dir"
+}
