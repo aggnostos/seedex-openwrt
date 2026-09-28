@@ -16,7 +16,8 @@ SING_BOX_EXEC=/usr/bin/sing-box
 
 MAX_TUNNELS=1024
 
-PID_FILE="$PROXY_RUNDIR/sing-box.pid"
+# Outside the rundir, which stop removes before procd gets to the pid file.
+PID_FILE="$SEEDEX_RUNDIR/sing-box.pid"
 
 EXTRA_COMMANDS="attach detach"
 
@@ -54,15 +55,15 @@ _attach() {
 	name=$(_name_of "$dev")
 	[ -n "$name" ] || return 0
 	seedex_register_iface "$dev" "proxy" "$name" "$(_reserved_of "$dev")"
-	_sync_nat
 	log_info "config '$name' up on $dev"
 }
 
+# NAT and the firewall zone follow the interface map at start, not each tun:
+# a rule for a tun that is down matches nothing, and sing-box brings it back.
 _detach() {
 	local dev="$1" iface
 	if [ -n "$dev" ]; then
 		seedex_unregister_iface "$dev"
-		_sync_nat
 		return 0
 	fi
 	for iface in $(_ifaces); do
@@ -229,6 +230,7 @@ start_service() {
 		log_err "setup failed, not starting"
 		return 1
 	fi
+	_sync_nat
 
 	procd_open_instance 'sing-box'
 	procd_set_param command $SING_BOX_EXEC run -c "$CONFIG_FILE"
