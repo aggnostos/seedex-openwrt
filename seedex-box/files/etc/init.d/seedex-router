@@ -704,7 +704,7 @@ setup_policy_routing() {
 }
 
 teardown_policy_routing() {
-	seedex_lan_ra_sync off
+	[ "${1:-}" = keep ] || seedex_lan_ra_sync off
 	seedex_pin_clear
 	seedex_pin_clear "$PINS_FILE.old"
 	ip rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
@@ -766,8 +766,19 @@ start_service() {
 
 stop_service() {
 	_load_config
-	teardown_policy_routing
-	teardown_nftables
+	# Restarting the whole box, the table stays until start replaces it: its
+	# kill switch drops overlay traffic while no tunnel is up, where without
+	# it that traffic would leave through the provider. The DNS upstream
+	# stays reachable directly, so the start can resolve before the tunnels.
+	if [ -n "${SEEDEX_RESTART:-}" ] && seedex_service_enabled router &&
+		nft list table inet "$NFT_TABLE" >/dev/null 2>&1; then
+		teardown_policy_routing keep
+		seedex_dns_bootstrap 1
+		log_debug "restart: nftables kept"
+	else
+		teardown_policy_routing
+		teardown_nftables
+	fi
 	rm -rf "$ROUTER_RUNDIR"
 	# Stopping the whole box, dns stops next and takes the domains with it.
 	[ -n "${SEEDEX_STOPPING:-}" ] || /etc/init.d/seedex-dns reload 2>/dev/null
