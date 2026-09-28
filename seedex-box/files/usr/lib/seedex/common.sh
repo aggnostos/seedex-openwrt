@@ -59,15 +59,13 @@ seedex_service_registered() {
 	ubus call service list "{\"name\":\"seedex-$1\"}" 2>/dev/null | grep -q "\"seedex-$1\""
 }
 
+# The router brings up dns itself.
 seedex_start_router() {
-	local svc
 	[ -z "${SEEDEX_BOOT:-}" ] || return 0
-	for svc in dns router; do
-		seedex_service_enabled "$svc" || continue
-		seedex_service_registered "$svc" && continue
-		log_info "starting seedex-$svc for the tunnels"
-		/etc/init.d/seedex-$svc start
-	done
+	seedex_service_enabled router || return 0
+	seedex_service_registered router && return 0
+	log_info "starting seedex-router for the tunnels"
+	/etc/init.d/seedex-router start
 }
 
 _seedex_config_digest() {

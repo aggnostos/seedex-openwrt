@@ -727,13 +727,23 @@ start_service() {
 	log_debug "starting (default_route=$DEFAULT_ROUTE, interfaces: $INTERFACES)"
 	mkdir -p "$ROUTER_RUNDIR" "$IPS_DIR"
 
+	# Domain rules live in dnsmasq, which seedex-dns configures. It leaves
+	# dnsmasq to the domains published below: one restart instead of two.
+	if [ -z "${SEEDEX_BOOT:-}" ] && seedex_service_enabled dns && ! seedex_service_registered dns; then
+		log_info "starting seedex-dns for the domain rules"
+		SEEDEX_DNS_DEFER=1 /etc/init.d/seedex-dns start
+	fi
+
 	_dns_wait
 
 	collect_pins
 	seedex_pin_sync
 	download_lists
 	_collect_buckets
-	setup_nftables || return 1
+	setup_nftables || {
+		/etc/init.d/seedex-dns reload 2>/dev/null
+		return 1
+	}
 	_pins_forget_dropped
 	publish_domains
 	setup_policy_routing
