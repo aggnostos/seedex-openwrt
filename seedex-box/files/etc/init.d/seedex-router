@@ -759,7 +759,8 @@ stop_service() {
 	teardown_policy_routing
 	teardown_nftables
 	rm -rf "$ROUTER_RUNDIR"
-	/etc/init.d/seedex-dns reload 2>/dev/null
+	# Stopping the whole box, dns stops next and takes the domains with it.
+	[ -n "${SEEDEX_STOPPING:-}" ] || /etc/init.d/seedex-dns reload 2>/dev/null
 	log_info "stopped"
 }
 

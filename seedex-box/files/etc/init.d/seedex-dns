@@ -268,7 +268,7 @@ start_service() {
 	fi
 	md5sum /etc/config/seedex-dns >"$DNS_RUNDIR/settings.md5"
 	rm -f "${DNSMASQ_CONF%/*}/seedex-router.conf"
-	if _write_dnsmasq_conf; then
+	if [ -z "${SEEDEX_DNS_DEFER:-}" ] && _write_dnsmasq_conf; then
 		/etc/init.d/dnsmasq restart 2>/dev/null
 	fi
 	log_info "started (upstream=$UPSTREAM resolver=$RESOLVER intercept=$INTERCEPT)"
@@ -292,7 +292,11 @@ reload_service() {
 stop_service() {
 	_load_config
 	nft delete table inet "$NFT_TABLE" 2>/dev/null
-	if [ -f "$DNSMASQ_CONF" ]; then
+	# A restart of the whole box writes the same config again, so keeping it
+	# spares dnsmasq two restarts.
+	if [ -n "${SEEDEX_RESTART:-}" ] && seedex_service_enabled dns; then
+		:
+	elif [ -f "$DNSMASQ_CONF" ]; then
 		rm -f "$DNSMASQ_CONF"
 		/etc/init.d/dnsmasq restart 2>/dev/null
 	fi

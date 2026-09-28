@@ -36,7 +36,17 @@ start() {
 
 	local svc
 	export SEEDEX_BOOT=1
-	for svc in seedex-dns seedex-vpn seedex-proxy; do
+	# Each dnsmasq restart costs seconds, so with the router coming up dns
+	# leaves dnsmasq alone and the router's published domains bring it in.
+	seedex_service_enabled router && export SEEDEX_DNS_DEFER=1
+	# dns shares nothing with the tunnels, so it comes up alongside them. vpn
+	# and proxy stay in turn: both commit the firewall zone through uci.
+	local dns_pid=""
+	if seedex_service_enabled dns; then
+		/etc/init.d/seedex-dns start &
+		dns_pid=$!
+	fi
+	for svc in seedex-vpn seedex-proxy; do
 		seedex_service_enabled "${svc#seedex-}" || continue
 		[ -x "/etc/init.d/$svc" ] && /etc/init.d/$svc start
 	done
@@ -44,10 +54,14 @@ start() {
 	if seedex_service_enabled vpn || seedex_service_enabled proxy; then
 		_wait_for_ifaces
 	fi
+	[ -z "$dns_pid" ] || wait "$dns_pid"
 
 	if seedex_service_enabled router && ! seedex_service_registered router; then
 		/etc/init.d/seedex-router start
 	fi
+
+	unset SEEDEX_DNS_DEFER
+	seedex_service_enabled dns && /etc/init.d/seedex-dns reload 2>/dev/null
 
 	log_info "started"
 }
@@ -56,15 +70,21 @@ stop() {
 	log_info "stopping"
 
 	local svc
+	export SEEDEX_STOPPING=1
 	for svc in seedex-router seedex-proxy seedex-vpn seedex-dns; do
 		/etc/init.d/$svc stop 2>/dev/null
 	done
+	unset SEEDEX_STOPPING
 
 	rm -rf "$SEEDEX_IFACE_DIR"
 	log_info "stopped"
 }
 
 restart() {
+	# dns keeps its dnsmasq config across the gap, so a restart that
+	# changes nothing in it leaves dnsmasq running.
+	export SEEDEX_RESTART=1
 	stop
 	start
+	unset SEEDEX_RESTART
 }
