@@ -263,6 +263,7 @@ start_service() {
 	fi
 
 	_write_upstream_ips
+	seedex_dns_upstream_sync
 	if nft list set inet "$SEEDEX_ROUTER_NFT_TABLE" dns_bootstrap 2>/dev/null | grep -qF elements; then
 		seedex_dns_bootstrap 1
 	fi
@@ -301,5 +302,6 @@ stop_service() {
 		/etc/init.d/dnsmasq restart 2>/dev/null
 	fi
 	rm -rf "$DNS_RUNDIR"
+	seedex_dns_upstream_sync
 	log_info "stopped"
 }

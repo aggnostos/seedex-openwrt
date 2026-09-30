@@ -801,27 +801,65 @@ seedex_resolve() {
 	echo "$result"
 }
 
-seedex_dns_upstream_ips() {
-	if [ -f "$SEEDEX_DNS_RUNDIR/upstream.ips" ]; then
-		cat "$SEEDEX_DNS_RUNDIR/upstream.ips"
-	else
-		awk '$1 == "nameserver" { print $2 }' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null
-	fi
+# Servers the user gave dnsmasq in /etc/config/dhcp, the per-domain ones
+# aside.
+seedex_dnsmasq_servers() {
+	uci -q show dhcp | sed -n "s/^dhcp\.[^.]*\.server=//p" | tr ' ' '\n' | tr -d "'" |
+		grep -v / | sed 's/#.*//' | grep -E "$SEEDEX_IPV4_RE|$SEEDEX_IPV6_RE"
 }
 
-seedex_dns_bootstrap() {
-	local ip v4="" v6=""
-	nft flush set inet seedex_router dns_bootstrap 2>/dev/null
-	nft flush set inet seedex_router dns_bootstrap6 2>/dev/null
-	[ "$1" = 1 ] || [ "$(uci -q get seedex-dns.main.upstream)" = provider ] || return 0
-	for ip in $(seedex_dns_upstream_ips); do
+seedex_dns_upstream_ips() {
+	{
+		if [ -f "$SEEDEX_DNS_RUNDIR/upstream.ips" ]; then
+			cat "$SEEDEX_DNS_RUNDIR/upstream.ips"
+		else
+			awk '$1 == "nameserver" { print $2 }' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null
+		fi
+		seedex_dnsmasq_servers
+	} | sort -u
+}
+
+_seedex_addr_set_fill() {
+	local set="$1" ip v4="" v6=""
+	shift
+	for ip in "$@"; do
 		case "$ip" in
 		*:*) v6="${v6:+$v6, }$ip" ;;
 		*) v4="${v4:+$v4, }$ip" ;;
 		esac
 	done
-	[ -z "$v4" ] || nft add element inet seedex_router dns_bootstrap "{ $v4 }" 2>/dev/null
-	[ -z "$v6" ] || nft add element inet seedex_router dns_bootstrap6 "{ $v6 }" 2>/dev/null
+	[ -z "$v4" ] || nft add element inet seedex_router "$set" "{ $v4 }" 2>/dev/null
+	[ -z "$v6" ] || nft add element inet seedex_router "${set}6" "{ $v6 }" 2>/dev/null
+}
+
+seedex_dns_bootstrap() {
+	nft flush set inet seedex_router dns_bootstrap 2>/dev/null
+	nft flush set inet seedex_router dns_bootstrap6 2>/dev/null
+	[ "$1" = 1 ] || [ "$(uci -q get seedex-dns.main.upstream)" = provider ] || return 0
+	# shellcheck disable=SC2046
+	_seedex_addr_set_fill dns_bootstrap $(seedex_dns_upstream_ips)
+}
+
+# The box's own DNS goes through the tunnel in either routing mode, so the
+# provider can neither block nor rewrite it: the resolver seedex-dns talks
+# to, and every query dnsmasq sends out, its servers from /etc/config/dhcp
+# included. dns_bootstrap, checked before this chain, lets DNS out directly
+# while no tunnel answers. The provider's own DNS stays direct: it answers
+# only its own users. seedex-dns and the router both call this, as either
+# comes and goes.
+seedex_dns_upstream_sync() {
+	nft flush chain inet seedex_router dns_out 2>/dev/null || return 0
+	nft flush set inet seedex_router dns_upstream 2>/dev/null
+	nft flush set inet seedex_router dns_upstream6 2>/dev/null
+	[ -f "$SEEDEX_DNS_RUNDIR/upstream.ips" ] || return 0
+	[ "$(uci -q get seedex-dns.main.upstream)" != provider ] || return 0
+	# shellcheck disable=SC2046
+	_seedex_addr_set_fill dns_upstream $(cat "$SEEDEX_DNS_RUNDIR/upstream.ips")
+	nft add rule inet seedex_router dns_out ip daddr @dns_upstream meta mark set "$SEEDEX_FWMARK" accept
+	nft add rule inet seedex_router dns_out ip6 daddr @dns_upstream6 meta mark set "$SEEDEX_FWMARK" accept
+	grep -q '^dnsmasq:' /etc/passwd || return 0
+	nft add rule inet seedex_router dns_out meta skuid dnsmasq \
+		meta l4proto '{ tcp, udp }' th dport '{ 53, 853 }' meta mark set "$SEEDEX_FWMARK" accept
 }
 
 seedex_probe_uplink() {

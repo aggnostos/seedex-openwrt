@@ -482,6 +482,8 @@ table inet ${NFT_TABLE} {
   set dns_bootstrap { type ipv4_addr; }
   set uplink_probe { type ipv4_addr; flags timeout; timeout 1h; }
   set dns_bootstrap6 { type ipv6_addr; }
+  set dns_upstream { type ipv4_addr; }
+  set dns_upstream6 { type ipv6_addr; }
   set tunnels { type ifname; }
   set client_direct_mac { type ether_addr; }
   set client_overlay_mac { type ether_addr; }
@@ -511,6 +513,8 @@ $(_pin_rules prerouting)
     ip6 daddr @${NFT_DIRECT_DYN6} accept
     ${tail}
   }
+  chain dns_out {
+  }
   chain output {
     type route hook output priority mangle; policy accept;
     meta mark ${SEEDEX_WG_FWMARK} accept
@@ -518,6 +522,7 @@ $(_pin_rules prerouting)
     ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } accept
     ip daddr @dns_bootstrap accept
     ip6 daddr @dns_bootstrap6 accept
+    jump dns_out
     ip daddr @uplink_probe accept
     ip daddr @block_ips drop
     ip6 daddr @block_ips6 drop
@@ -542,6 +547,7 @@ EOF
 	_load_ip_sets
 	_load_client_sets
 	_tunnels_refresh
+	seedex_dns_upstream_sync
 	log_debug "nftables configured"
 }
 
