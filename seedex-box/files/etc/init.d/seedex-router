@@ -657,6 +657,14 @@ publish_domains() {
 	log_debug "domains published: $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/overlay") overlay, $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/direct") direct, $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/block") blocked"
 }
 
+# dnsmasq adds an address to a set only from an upstream answer, never from
+# its cache, so a rebuilt table's empty sets would stay empty until each
+# cached answer expired. HUP empties the cache without a restart.
+_dnsmasq_forget() {
+	killall -HUP dnsmasq 2>/dev/null
+	return 0
+}
+
 _dns_wait() {
 	local seconds="${1:-15}" deadline
 	deadline=$(($(date +%s) + seconds))
@@ -746,6 +754,7 @@ start_service() {
 	}
 	_pins_forget_dropped
 	publish_domains
+	_dnsmasq_forget
 	setup_policy_routing
 
 	procd_open_instance 'watchdog'
@@ -805,6 +814,7 @@ reapply() {
 		setup_nftables || return 1
 		_pins_forget_dropped
 		publish_domains
+		_dnsmasq_forget
 		seedex_pin_sync
 		log_info "reapplied"
 		return 0
