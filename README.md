@@ -80,8 +80,8 @@ Run `sdx`:
 
 ```
 Uplink:
-    [*] Internet             118 ms
-    [*] Overlay (anytls)     286 ms
+    [*] Internet                 118 ms
+    [*] Overlay (ger1-proxy)     286 ms
 
 [*] Router:
     Routing:      overlay
@@ -93,13 +93,12 @@ Uplink:
 
 [*] VPN:
     Configs:
-        [ ] awg         362 ms
-        [ ] wg          324 ms
+        [ ] ger1-awg-router    362 ms
+        [ ] ger1-wg-router     324 ms
 
 [*] Proxy:
     Configs:
-        [*] anytls      286 ms
-        [ ] vless       311 ms
+        [*] ger1-proxy (vless) 286 ms
 
 [*] DNS:
     Upstream:   encrypted
@@ -108,7 +107,7 @@ Uplink:
     Max TTL:    300s
 
 Link:
-    [*] agent        https://203.0.113.5:8282         2 vpn, 2 proxy, 4 min ago
+    [*] agent      https://203.0.113.5:8282         2 vpn, 1 proxy, 4 min ago
 ```
 
 The **Uplink** section shows the tunnel that carries the traffic. In LuCI, the same information is under **Services > Seedex**.
