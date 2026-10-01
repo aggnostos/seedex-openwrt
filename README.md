@@ -105,6 +105,7 @@ Uplink:
     Upstream:   encrypted
     Resolver:   cloudflare
     Intercept:  on
+    Max TTL:    300s
 
 Link:
     [*] agent        https://203.0.113.5:8282         2 vpn, 2 proxy, 4 min ago

@@ -17,7 +17,14 @@
 # address the client meant, and refuses DNS-over-TLS (853) — a device with its
 # own resolver would otherwise bypass the routing rules. Firefox is told to
 # drop DNS-over-HTTPS through the use-application-dns.net canary.
+#
+# max_ttl caps, in seconds, how long devices may keep an answer, so they ask
+# again soon after a routing rule changes: a device with an answer cached
+# would bypass a new domain rule until it expires. dnsmasq keeps the true
+# TTL in its own cache, so the upstream sees no more queries. 0 hands out
+# the true TTL.
 config dns 'main'
 	option upstream 'encrypted'
 	option resolver 'cloudflare'
 	option intercept '1'
+	option max_ttl '300'

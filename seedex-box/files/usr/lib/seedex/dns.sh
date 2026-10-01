@@ -2,19 +2,21 @@
 SVC_NAME="dns"
 # shellcheck source=files/usr/lib/seedex/service.sh
 . /usr/lib/seedex/service.sh
-SVC_CONFIG_KEYS="upstream resolver intercept"
+SVC_CONFIG_KEYS="upstream resolver intercept max_ttl"
 
 SVC_ACTIONS="start stop restart enable disable config changes apply revert"
 
 svc_status() {
-	local upstream resolver intercept
+	local upstream resolver intercept max_ttl
 	seedex_status_header dns "DNS"
 	upstream=$(uci -q get seedex-dns.main.upstream)
 	resolver=$(uci -q get seedex-dns.main.resolver)
 	intercept=$(uci -q get seedex-dns.main.intercept)
+	max_ttl=$(uci -q get seedex-dns.main.max_ttl)
 	printf '  %-11s %s\n' "Upstream:" "${upstream:-encrypted}"
 	[ "${upstream:-encrypted}" = provider ] || printf '  %-11s %s\n' "Resolver:" "${resolver:-cloudflare}"
 	printf '  %-11s %s\n' "Intercept:" "$([ "${intercept:-1}" = 0 ] && echo off || echo on)"
+	printf '  %-11s %s\n' "Max TTL:" "$([ "${max_ttl:-300}" = 0 ] && echo off || echo "${max_ttl:-300}s")"
 	if [ -d "$SEEDEX_ROUTER_DOMAINS_DIR" ]; then
 		printf '  %-11s %s overlay, %s direct, %s blocked\n' "Domains:" \
 			"$(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/overlay" 2>/dev/null || echo 0)" \

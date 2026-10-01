@@ -15,7 +15,9 @@ var SETTINGS = [
 	  options: [ [ 'cloudflare', 'Cloudflare' ], [ 'quad9', 'Quad9' ], [ 'google', 'Google' ] ] },
 	{ key: 'intercept', label: _('Interception'),
 	  options: [ [ '1', _('on — every LAN DNS query goes through the router, DoT is refused') ],
-	             [ '0', _('off — clients may use any resolver and bypass the rules') ] ] }
+	             [ '0', _('off — clients may use any resolver and bypass the rules') ] ] },
+	{ key: 'max_ttl', label: _('Max TTL'), placeholder: '300',
+	  hint: _('seconds a device may keep an answer, so new rules reach it soon; 0 keeps the true TTL') }
 ];
 
 return view.extend({

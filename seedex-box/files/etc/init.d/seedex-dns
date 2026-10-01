@@ -22,6 +22,11 @@ _load_config() {
 	config_get UPSTREAM main upstream 'encrypted'
 	config_get RESOLVER main resolver 'cloudflare'
 	config_get_bool INTERCEPT main intercept 1
+	config_get MAX_TTL main max_ttl 300
+	[ "$MAX_TTL" -ge 0 ] 2>/dev/null || {
+		log_warn "max_ttl '$MAX_TTL' is not a number of seconds, using 300"
+		MAX_TTL=300
+	}
 	DNSMASQ_CONF="$(_dnsmasq_confdir)/seedex-dns.conf"
 }
 
@@ -111,6 +116,7 @@ _render_dnsmasq_conf() {
 		;;
 	esac
 	[ "$INTERCEPT" -eq 0 ] || echo "server=/use-application-dns.net/"
+	[ "$MAX_TTL" -eq 0 ] || echo "max-ttl=$MAX_TTL"
 	local f pin
 	for f in "$SEEDEX_ROUTER_DOMAINS_DIR"/pin*; do
 		[ -f "$f" ] || continue
