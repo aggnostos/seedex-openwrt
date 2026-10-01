@@ -227,11 +227,39 @@ _nft_set_batch() {
 		END { if (n > 0) print " }" }'
 }
 
+# apply and the watchdog both rebuild the rules: one at a time.
+_lock() {
+	exec 9>/var/lock/seedex-router.lock
+	flock 9
+}
+
+_table_exists() {
+	nft list tables inet 2>/dev/null | grep -qx "table inet $NFT_TABLE"
+}
+
+# What a set of the live table holds, as commands that refill it in the
+# table replacing it. Fails when the live table has no such set.
+_nft_set_elements() {
+	local out
+	out=$(nft list set inet "$NFT_TABLE" "$1" 2>/dev/null) || return 1
+	printf '%s\n' "$out" | awk -v tbl="$NFT_TABLE" -v set="$1" '
+		sub(/.*elements = \{/, "") { on = 1 }
+		on { buf = buf " " $0; if (/\}/) on = 0 }
+		END {
+			sub(/\}.*/, "", buf)
+			gsub(/^[ \t]+|[ \t]+$/, "", buf)
+			if (buf != "") printf "add element inet %s %s { %s }\n", tbl, set, buf
+		}'
+}
+
 _type_active() {
 	[ "$1" = block ] || [ "$1" != "$DEFAULT_ROUTE" ]
 }
 
+# With "new", only the lists not on disk yet or whose URL changed: the
+# watchdog refreshes the rest on their own schedule.
 download_lists() {
+	local only_new="${1:-}"
 	mkdir -p "$LISTS_DIR"
 
 	_download_rule_list() {
@@ -241,6 +269,16 @@ download_lists() {
 		config_get_bool enabled "$section" enabled 0
 		[ "$enabled" -eq 1 ] || return 0
 
+		# The rules read a list from here while it is on disk, so one whose
+		# URL is gone must go too.
+		local dest="${LISTS_DIR}/${section}.txt"
+		local tmp="${dest}.new"
+		config_get list_url "$section" list_url ''
+		[ -n "$list_url" ] || {
+			rm -f "$dest" "$dest.url"
+			return 0
+		}
+
 		local bucket
 		bucket=$(_rule_bucket "$section")
 		if ! _bucket_active "$bucket"; then
@@ -248,15 +286,13 @@ download_lists() {
 			return 0
 		fi
 
-		config_get list_url "$section" list_url ''
-		[ -n "$list_url" ] || return 0
-
-		local dest="${LISTS_DIR}/${section}.txt"
-		local tmp="${dest}.new"
+		[ -z "$only_new" ] || [ ! -f "$dest" ] ||
+			[ "$(cat "$dest.url" 2>/dev/null)" != "$list_url" ] || return 0
 		log_debug "downloading list '$list_url'"
 
 		if seedex_fetch "$list_url" "$tmp"; then
 			mv "$tmp" "$dest"
+			printf '%s\n' "$list_url" >"$dest.url"
 			local count
 			count=$(wc -l <"$dest")
 			log_debug "downloaded $count entries from '$list_url'"
@@ -370,12 +406,12 @@ collect_rule_clients() {
 	done
 }
 
-_tunnels_refresh() {
+_tunnels_nft() {
 	local ifaces
-	nft flush set inet "$NFT_TABLE" tunnels 2>/dev/null
 	ifaces=$(seedex_active_ifaces | tr '\n' ',')
 	ifaces="${ifaces%,}"
-	[ -z "$ifaces" ] || nft add element inet "$NFT_TABLE" tunnels "{ $ifaces }" 2>/dev/null
+	echo "flush set inet $NFT_TABLE tunnels"
+	[ -z "$ifaces" ] || echo "add element inet $NFT_TABLE tunnels { $ifaces }"
 }
 
 _collect_buckets() {
@@ -391,17 +427,43 @@ _collect_buckets() {
 	done
 }
 
-_load_client_sets() {
+# Each static set beside the file it loads from.
+_set_files() {
 	local t
-	for t in direct overlay; do
-		load_nft_set "client_${t}_mac" "${IPS_DIR}/client_${t}.mac"
-		load_nft_set "client_${t}_ip" "${IPS_DIR}/client_${t}.ip"
-		load_nft_set "client_${t}_ip6" "${IPS_DIR}/client_${t}.ip6"
-	done
 	for t in $(_pins); do
-		load_nft_set "${t}_cmac" "${IPS_DIR}/client_${t}.mac"
-		load_nft_set "${t}_cip" "${IPS_DIR}/client_${t}.ip"
-		load_nft_set "${t}_cip6" "${IPS_DIR}/client_${t}.ip6"
+		echo "${t}_ips ${IPS_DIR}/${t}.ips"
+		echo "${t}_ips6 ${IPS_DIR}/${t}.ips6"
+		echo "${t}_cmac ${IPS_DIR}/client_${t}.mac"
+		echo "${t}_cip ${IPS_DIR}/client_${t}.ip"
+		echo "${t}_cip6 ${IPS_DIR}/client_${t}.ip6"
+	done
+	echo "endpoint_ips ${IPS_DIR}/endpoints.ips"
+	echo "endpoint_ips6 ${IPS_DIR}/endpoints.ips6"
+	echo "$NFT_OVERLAY_SET ${IPS_DIR}/overlay.ips"
+	echo "$NFT_OVERLAY_SET6 ${IPS_DIR}/overlay.ips6"
+	echo "$NFT_DIRECT_SET ${IPS_DIR}/direct.ips"
+	echo "$NFT_DIRECT_SET6 ${IPS_DIR}/direct.ips6"
+	echo "block_ips ${IPS_DIR}/block.ips"
+	echo "block_ips6 ${IPS_DIR}/block.ips6"
+	for t in direct overlay; do
+		echo "client_${t}_mac ${IPS_DIR}/client_${t}.mac"
+		echo "client_${t}_ip ${IPS_DIR}/client_${t}.ip"
+		echo "client_${t}_ip6 ${IPS_DIR}/client_${t}.ip6"
+	done
+}
+
+_sets_nft() {
+	local set file
+	_set_files | while read -r set file; do
+		[ ! -s "$file" ] || _nft_set_batch "$set" "$NFT_SET_CHUNK" <"$file"
+	done
+}
+
+# One entry nft rejects fails a whole batch: this fallback skips just it.
+_load_sets() {
+	local set file
+	_set_files | while read -r set file; do
+		load_nft_set "$set" "$file"
 	done
 }
 
@@ -440,10 +502,14 @@ EOS
 	done
 }
 
+# The replacement table goes in as one nft transaction: traffic meets
+# either the old rules or the new ones, never a gap without the kill switch,
+# and a failure leaves the old table working.
 setup_nftables() {
 	log_debug "setting up nftables (default_route=$DEFAULT_ROUTE)"
 
-	nft delete table inet "$NFT_TABLE" 2>/dev/null
+	local had=0
+	! _table_exists || had=1
 
 	local ep_file="${IPS_DIR}/endpoints.ips"
 	_collect_endpoint_ips 4 >"$ep_file"
@@ -471,8 +537,12 @@ setup_nftables() {
 		log_debug "kill switch armed"
 	fi
 
-	local rc=0
-	nft -f - <<EOF || rc=$?
+	local bare="${IPS_DIR}/table.nft" full="${IPS_DIR}/table-sets.nft" carry="${IPS_DIR}/dyn.nft"
+	_dyn_carry "$had" >"$carry"
+	{
+		echo "add table inet ${NFT_TABLE}"
+		echo "delete table inet ${NFT_TABLE}"
+		cat <<EOF
 table inet ${NFT_TABLE} {
   set ${NFT_OVERLAY_SET} { type ipv4_addr; flags interval; auto-merge; }
   set ${NFT_DIRECT_SET} { type ipv4_addr; flags interval; auto-merge; }
@@ -545,50 +615,53 @@ $(_pin_rules output)
   ${kill_chain}
 }
 EOF
+		cat "$carry"
+		_nft_set_elements dns_bootstrap
+		_nft_set_elements dns_bootstrap6
+		_tunnels_nft
+		seedex_dns_upstream_nft
+	} >"$bare"
+	{
+		cat "$bare"
+		_sets_nft
+	} >"$full"
 
+	local rc=0
+	if ! nft -f "$full" 2>/dev/null; then
+		if nft -f "$bare"; then
+			log_warn "nft rejected a list entry, loading the sets one by one"
+			_load_sets
+		else
+			rc=1
+		fi
+	fi
+	rm -f "$bare" "$full" "$carry"
 	if [ "$rc" -ne 0 ]; then
 		log_err "failed to create nftables table"
 		return 1
 	fi
-
-	_load_ip_sets
-	_load_client_sets
-	_tunnels_refresh
-	seedex_dns_upstream_sync
 	log_debug "nftables configured"
 }
 
+# In place, the table kept: one transaction swaps the old entries for the
+# new ones.
 _refresh_nft_sets() {
 	_collect_endpoint_ips 4 >"${IPS_DIR}/endpoints.ips"
 	_collect_endpoint_ips 6 >"${IPS_DIR}/endpoints.ips6"
 
-	local set t
-	for set in endpoint_ips "$NFT_OVERLAY_SET" "$NFT_DIRECT_SET" block_ips \
-		endpoint_ips6 "$NFT_OVERLAY_SET6" "$NFT_DIRECT_SET6" block_ips6 \
-		client_direct_mac client_overlay_mac client_direct_ip client_overlay_ip \
-		client_direct_ip6 client_overlay_ip6 \
-		$(for t in $(_pins); do printf '%s_ips %s_ips6 %s_cmac %s_cip %s_cip6 ' "$t" "$t" "$t" "$t" "$t"; done); do
-		nft flush set inet "$NFT_TABLE" "$set" 2>/dev/null
-	done
-	_load_ip_sets
-	_load_client_sets
-	_tunnels_refresh
-}
-
-_load_ip_sets() {
-	local t
-	for t in $(_pins); do
-		load_nft_set "${t}_ips" "${IPS_DIR}/${t}.ips"
-		load_nft_set "${t}_ips6" "${IPS_DIR}/${t}.ips6"
-	done
-	load_nft_set "endpoint_ips" "${IPS_DIR}/endpoints.ips"
-	load_nft_set "endpoint_ips6" "${IPS_DIR}/endpoints.ips6"
-	load_nft_set "$NFT_OVERLAY_SET" "${IPS_DIR}/overlay.ips"
-	load_nft_set "$NFT_OVERLAY_SET6" "${IPS_DIR}/overlay.ips6"
-	load_nft_set "$NFT_DIRECT_SET" "${IPS_DIR}/direct.ips"
-	load_nft_set "$NFT_DIRECT_SET6" "${IPS_DIR}/direct.ips6"
-	load_nft_set block_ips "${IPS_DIR}/block.ips"
-	load_nft_set block_ips6 "${IPS_DIR}/block.ips6"
+	local script="${IPS_DIR}/refresh.nft"
+	{
+		_set_files | awk -v tbl="$NFT_TABLE" '{ print "flush set inet " tbl " " $1 }'
+		_tunnels_nft
+	} >"$script"
+	if ! { cat "$script" && _sets_nft; } | nft -f - 2>/dev/null; then
+		log_warn "nft rejected a list entry, loading the sets one by one"
+		while read -r cmd; do
+			printf '%s\n' "$cmd" | nft -f - 2>/dev/null
+		done <"$script"
+		_load_sets
+	fi
+	rm -f "$script"
 }
 
 teardown_nftables() {
@@ -639,22 +712,62 @@ _rule_domains() {
 	rm -f "$raw" "${raw}.ok"
 }
 
-_flush_dyn() {
-	local set
+_dyn_set() {
 	case "$1" in
-	overlay) set="$NFT_OVERLAY_DYN" ;;
-	direct) set="$NFT_DIRECT_DYN" ;;
-	pin*) set="${1}_dyn" ;;
-	*) return 0 ;;
+	overlay) echo "$NFT_OVERLAY_DYN" ;;
+	direct) echo "$NFT_DIRECT_DYN" ;;
+	pin*) echo "${1}_dyn" ;;
 	esac
-	nft flush set inet "$NFT_TABLE" "$set" 2>/dev/null
-	nft flush set inet "$NFT_TABLE" "${set}6" 2>/dev/null
 }
 
-publish_domains() {
+# Buckets whose dynamic sets start empty, for _dyn_forget.
+DYN_FRESH=""
+
+# dnsmasq fills the dynamic sets from upstream answers only, so the table
+# replacing a live one takes their addresses over: emptied, a set would miss
+# every address clients keep cached.
+_dyn_carry() {
+	local had="$1" t set
+	DYN_FRESH=""
+	for t in overlay direct $(_pins); do
+		set=$(_dyn_set "$t")
+		if [ "$had" = 1 ] && ! _domains_dropped "$t" &&
+			_nft_set_elements "$set" && _nft_set_elements "${set}6"; then
+			continue
+		fi
+		DYN_FRESH="$DYN_FRESH $t"
+	done
+}
+
+_flush_dyn() {
+	local set
+	set=$(_dyn_set "$1")
+	[ -n "$set" ] || return 0
+	nft flush set inet "$NFT_TABLE" "$set" 2>/dev/null
+	nft flush set inet "$NFT_TABLE" "${set}6" 2>/dev/null
+	DYN_FRESH="$DYN_FRESH $1"
+}
+
+# dnsmasq adds an address to a set only from an upstream answer, never from
+# its cache, so an emptied set would stay so until each cached answer
+# expired. HUP empties the cache without a restart.
+_dyn_forget() {
+	local t
+	for t in $DYN_FRESH; do
+		[ -s "$SEEDEX_ROUTER_DOMAINS_DIR/$t" ] || continue
+		killall -HUP dnsmasq 2>/dev/null
+		break
+	done
+	DYN_FRESH=""
+	return 0
+}
+
+# Each bucket's domains go beside the published list first: setup_nftables
+# compares the two to tell which sets keep their addresses.
+_domains_stage() {
 	local rule_type dest
 	mkdir -p "$SEEDEX_ROUTER_DOMAINS_DIR"
-	rm -f "$SEEDEX_ROUTER_DOMAINS_DIR"/pin*
+	rm -f "$SEEDEX_ROUTER_DOMAINS_DIR"/*.new
 	for rule_type in overlay direct block $(_pins); do
 		dest="$SEEDEX_ROUTER_DOMAINS_DIR/$rule_type"
 		if _bucket_active "$rule_type"; then
@@ -663,19 +776,60 @@ publish_domains() {
 		else
 			: >"$dest.new"
 		fi
-		[ ! -f "$dest" ] || cmp -s "$dest.new" "$dest" || _flush_dyn "$rule_type"
-		mv "$dest.new" "$dest"
 	done
-	/etc/init.d/seedex-dns reload 2>/dev/null
-	log_debug "domains published: $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/overlay") overlay, $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/direct") direct, $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/block") blocked"
 }
 
-# dnsmasq adds an address to a set only from an upstream answer, never from
-# its cache, so a rebuilt table's empty sets would stay empty until each
-# cached answer expired. HUP empties the cache without a restart.
-_dnsmasq_forget() {
-	killall -HUP dnsmasq 2>/dev/null
-	return 0
+# dnsmasq keeps no record of the domain behind an address, so a bucket that
+# loses a domain cannot drop just its addresses: the whole set starts over.
+_domains_dropped() {
+	local dest="$SEEDEX_ROUTER_DOMAINS_DIR/$1"
+	[ -s "$dest" ] || return 1
+	[ -f "$dest.new" ] || return 0
+	awk 'FILENAME == ARGV[1] { kept[$0] = 1; next }
+		!($0 in kept) { found = 1; exit }
+		END { exit !found }' "$dest.new" "$dest"
+}
+
+_domains_added() {
+	local dest="$SEEDEX_ROUTER_DOMAINS_DIR/$1"
+	[ -f "$dest" ] || return 0
+	awk 'FILENAME == ARGV[1] { old[$0] = 1; next } !($0 in old)' "$dest" "$dest.new"
+}
+
+WARM_MAX=50
+
+# A domain just added reaches its set once a client asks for it again.
+# Asking dnsmasq right away fills the set now. A list is left alone: it may
+# hold thousands of domains.
+_domains_warm() {
+	[ "$#" -gt 0 ] && [ "$#" -le "$WARM_MAX" ] || return 0
+	(
+		sleep 1
+		for d in "$@"; do
+			nslookup "$d" 127.0.0.1 >/dev/null 2>&1
+		done
+	) >/dev/null 2>&1 9>&- &
+}
+
+publish_domains() {
+	local rule_type dest f warm=""
+	for rule_type in overlay direct block $(_pins); do
+		dest="$SEEDEX_ROUTER_DOMAINS_DIR/$rule_type"
+		[ -f "$dest.new" ] || continue
+		! _domains_dropped "$rule_type" || _flush_dyn "$rule_type"
+		[ "$rule_type" = block ] ||
+			warm="$warm $(_domains_added "$rule_type" | head -n "$((WARM_MAX + 1))")"
+		mv "$dest.new" "$dest"
+	done
+	for f in "$SEEDEX_ROUTER_DOMAINS_DIR"/pin*; do
+		[ -f "$f" ] || continue
+		_pins | grep -qx "${f##*/}" || rm -f "$f"
+	done
+	/etc/init.d/seedex-dns reload 2>/dev/null
+	_dyn_forget
+	# shellcheck disable=SC2086
+	_domains_warm $warm
+	log_debug "domains published: $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/overlay") overlay, $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/direct") direct, $(wc -l <"$SEEDEX_ROUTER_DOMAINS_DIR/block") blocked"
 }
 
 _dns_wait() {
@@ -698,7 +852,20 @@ _initial_iface() {
 	echo "$best"
 }
 
+# The overlay route a restart left in place, while its tunnel is still up
+# and open to the overlay. A tunnel that went down took its route along.
+_kept_iface() {
+	local dev
+	dev=$(ip route show default table "$ROUTE_TABLE" 2>/dev/null |
+		awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+	[ -n "$dev" ] && seedex_overlay_ifaces | grep -qx "$dev" || return 1
+	echo "$dev"
+}
+
 setup_policy_routing() {
+	local active
+	active=$(_kept_iface)
+
 	ip rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
 	ip rule add fwmark "$FWMARK" table "$ROUTE_TABLE" priority "$RULE_PRIO"
 	ip -6 rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
@@ -707,18 +874,22 @@ setup_policy_routing() {
 	ip -6 rule del fwmark "$SEEDEX_WG_FWMARK" priority "$((LOCAL6_PRIO - 1))" 2>/dev/null
 	ip -6 rule add fwmark "$SEEDEX_WG_FWMARK" unreachable priority "$((LOCAL6_PRIO - 1))"
 	ip -6 rule add iif lo table "$ROUTE_TABLE" priority "$LOCAL6_PRIO"
-	ip -6 route replace unreachable default table "$ROUTE_TABLE"
+	[ -n "$active" ] || ip -6 route replace unreachable default table "$ROUTE_TABLE"
 	log_debug "fwmark=$FWMARK table=$ROUTE_TABLE priority=$RULE_PRIO"
 
 	seedex_pin_sync
 
-	local active
-	seedex_dns_bootstrap 1
-	active=$(_initial_iface "$PROBE_URL" "$PROBE_TIMEOUT")
-
-	if [ -z "$active" ]; then
-		log_warn "no reachable interfaces, routing deferred to watchdog"
-		return 0
+	# The watchdog weighs the kept tunnel against the rest at its next
+	# check, so a restart spares the probes.
+	if [ -n "$active" ]; then
+		log_debug "keeping the overlay through $active"
+	else
+		seedex_dns_bootstrap 1
+		active=$(_initial_iface "$PROBE_URL" "$PROBE_TIMEOUT")
+		if [ -z "$active" ]; then
+			log_warn "no reachable interfaces, routing deferred to watchdog"
+			return 0
+		fi
 	fi
 
 	seedex_overlay_route "$active"
@@ -729,7 +900,7 @@ setup_policy_routing() {
 }
 
 teardown_policy_routing() {
-	[ "${1:-}" = keep ] || seedex_lan_ra_sync off
+	seedex_lan_ra_sync off
 	seedex_pin_clear
 	seedex_pin_clear "$PINS_FILE.old"
 	ip rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
@@ -763,18 +934,21 @@ start_service() {
 
 	_dns_wait
 
+	_lock
 	collect_pins
 	seedex_pin_sync
 	download_lists
 	_collect_buckets
+	_domains_stage
 	setup_nftables || {
+		rm -f "$SEEDEX_ROUTER_DOMAINS_DIR"/*.new
 		/etc/init.d/seedex-dns reload 2>/dev/null
 		return 1
 	}
 	_pins_forget_dropped
 	publish_domains
-	_dnsmasq_forget
 	setup_policy_routing
+	_settings_digest >"$SETTINGS_STAMP"
 
 	procd_open_instance 'watchdog'
 	procd_set_param command $WATCHDOG
@@ -794,23 +968,54 @@ start_service() {
 
 stop_service() {
 	_load_config
-	# Restarting the whole box, the table stays until start replaces it: its
-	# kill switch drops overlay traffic while no tunnel is up, where without
-	# it that traffic would leave through the provider. The DNS upstream
-	# stays reachable directly, so the start can resolve before the tunnels.
-	if [ -n "${SEEDEX_RESTART:-}" ] && seedex_service_enabled router &&
-		nft list table inet "$NFT_TABLE" >/dev/null 2>&1; then
-		teardown_policy_routing keep
-		seedex_dns_bootstrap 1
-		log_debug "restart: nftables kept"
-	else
-		teardown_policy_routing
-		teardown_nftables
+	# A restart keeps the table, the overlay route and the published domains
+	# until start replaces them: traffic stays in its tunnel through the
+	# gap, and dnsmasq restarts only if the domains change. Restarting the
+	# whole box takes the tunnels down next, so the DNS upstream turns
+	# reachable directly for the start to resolve before they return.
+	if [ -n "${SEEDEX_RESTART:-}" ] && seedex_service_enabled router && _table_exists; then
+		[ -z "${SEEDEX_STOPPING:-}" ] || seedex_dns_bootstrap 1
+		log_info "stopped, the rules kept for the restart"
+		return 0
 	fi
+	teardown_policy_routing
+	teardown_nftables
 	rm -rf "$ROUTER_RUNDIR"
 	# Stopping the whole box, dns stops next and takes the domains with it.
 	[ -n "${SEEDEX_STOPPING:-}" ] || /etc/init.d/seedex-dns reload 2>/dev/null
 	log_info "stopped"
+}
+
+restart() {
+	SEEDEX_RESTART=1
+	export SEEDEX_RESTART
+	trap '' TERM
+	stop
+	trap - TERM
+	start
+}
+
+SETTINGS_STAMP="$ROUTER_RUNDIR/settings"
+
+# The options that shape the table. The watchdog rereads its own on every
+# check.
+_settings_digest() {
+	uci -q show seedex-router.main | grep -v '\.watchdog_' | md5sum
+}
+
+# Rules alone change in place: sets and dnsmasq follow, the route and the
+# tunnels stay. Anything else restarts.
+reload_service() {
+	_load_config
+	if ! _table_exists || [ "$(_settings_digest)" != "$(cat "$SETTINGS_STAMP" 2>/dev/null)" ]; then
+		log_info "settings changed, restarting"
+		restart
+		return
+	fi
+	seedex_config_stamp router
+	download_lists new
+	reapply
+	seedex_watchdog_wake
 }
 
 EXTRA_COMMANDS="reapply"
@@ -819,28 +1024,27 @@ EXTRA_HELP="	reapply	Rebuild the IP sets from lists already on disk"
 reapply() {
 	_load_config
 
-	if ! nft list table inet "$NFT_TABLE" >/dev/null 2>&1; then
+	if ! _table_exists; then
 		log_warn "reapply: no nftables table, nothing to update"
 		return 1
 	fi
 
+	_lock
 	log_info "reapplying rules"
 	collect_pins
+	_collect_buckets
+	_domains_stage
 	if _pins_changed; then
 		log_info "pinned tunnels changed, rebuilding the rule set"
 		seedex_pin_sync
-		_collect_buckets
-		setup_nftables || return 1
-		_pins_forget_dropped
-		publish_domains
-		_dnsmasq_forget
-		seedex_pin_sync
-		log_info "reapplied"
-		return 0
+		setup_nftables || {
+			rm -f "$SEEDEX_ROUTER_DOMAINS_DIR"/*.new
+			return 1
+		}
+	else
+		_refresh_nft_sets
 	fi
 	_pins_forget_dropped
-	_collect_buckets
-	_refresh_nft_sets
 	publish_domains
 	seedex_pin_sync
 	log_info "reapplied"

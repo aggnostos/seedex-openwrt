@@ -819,7 +819,7 @@ seedex_dns_upstream_ips() {
 	} | sort -u
 }
 
-_seedex_addr_set_fill() {
+_seedex_addr_elements() {
 	local set="$1" ip v4="" v6=""
 	shift
 	for ip in "$@"; do
@@ -828,8 +828,12 @@ _seedex_addr_set_fill() {
 		*) v4="${v4:+$v4, }$ip" ;;
 		esac
 	done
-	[ -z "$v4" ] || nft add element inet seedex_router "$set" "{ $v4 }" 2>/dev/null
-	[ -z "$v6" ] || nft add element inet seedex_router "${set}6" "{ $v6 }" 2>/dev/null
+	[ -z "$v4" ] || printf 'add element inet seedex_router %s { %s }\n' "$set" "$v4"
+	[ -z "$v6" ] || printf 'add element inet seedex_router %s6 { %s }\n' "$set" "$v6"
+}
+
+_seedex_addr_set_fill() {
+	_seedex_addr_elements "$@" | nft -f - 2>/dev/null
 }
 
 seedex_dns_bootstrap() {
@@ -848,18 +852,27 @@ seedex_dns_bootstrap() {
 # only its own users. seedex-dns and the router both call this, as either
 # comes and goes.
 seedex_dns_upstream_sync() {
-	nft flush chain inet seedex_router dns_out 2>/dev/null || return 0
-	nft flush set inet seedex_router dns_upstream 2>/dev/null
-	nft flush set inet seedex_router dns_upstream6 2>/dev/null
+	nft list chain inet seedex_router dns_out >/dev/null 2>&1 || return 0
+	{
+		echo "flush chain inet seedex_router dns_out"
+		echo "flush set inet seedex_router dns_upstream"
+		echo "flush set inet seedex_router dns_upstream6"
+		seedex_dns_upstream_nft
+	} | nft -f -
+}
+
+# The commands behind seedex_dns_upstream_sync, which the router also builds
+# into a new table.
+seedex_dns_upstream_nft() {
 	[ -f "$SEEDEX_DNS_RUNDIR/upstream.ips" ] || return 0
 	[ "$(uci -q get seedex-dns.main.upstream)" != provider ] || return 0
 	# shellcheck disable=SC2046
-	_seedex_addr_set_fill dns_upstream $(cat "$SEEDEX_DNS_RUNDIR/upstream.ips")
-	nft add rule inet seedex_router dns_out ip daddr @dns_upstream meta mark set "$SEEDEX_FWMARK" accept
-	nft add rule inet seedex_router dns_out ip6 daddr @dns_upstream6 meta mark set "$SEEDEX_FWMARK" accept
+	_seedex_addr_elements dns_upstream $(cat "$SEEDEX_DNS_RUNDIR/upstream.ips")
+	echo "add rule inet seedex_router dns_out ip daddr @dns_upstream meta mark set $SEEDEX_FWMARK accept"
+	echo "add rule inet seedex_router dns_out ip6 daddr @dns_upstream6 meta mark set $SEEDEX_FWMARK accept"
 	grep -q '^dnsmasq:' /etc/passwd || return 0
-	nft add rule inet seedex_router dns_out meta skuid dnsmasq \
-		meta l4proto '{ tcp, udp }' th dport '{ 53, 853 }' meta mark set "$SEEDEX_FWMARK" accept
+	echo "add rule inet seedex_router dns_out meta skuid dnsmasq" \
+		"meta l4proto { tcp, udp } th dport { 53, 853 } meta mark set $SEEDEX_FWMARK accept"
 }
 
 seedex_probe_uplink() {

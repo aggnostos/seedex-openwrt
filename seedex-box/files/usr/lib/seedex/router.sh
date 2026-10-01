@@ -642,7 +642,7 @@ svc_dispatch() {
 	stop) svc_stop ;;
 	restart) svc_restart ;;
 	changes) svc_changes ;;
-	apply) svc_apply ;;
+	apply) svc_apply reload ;;
 	revert) svc_revert ;;
 	config) svc_config "$@" ;;
 	export) svc_export ;;

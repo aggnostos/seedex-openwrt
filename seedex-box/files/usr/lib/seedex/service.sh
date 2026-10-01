@@ -346,7 +346,11 @@ svc_apply() {
 		uci commit "$SVC_ID"
 		echo "$SVC_ID saved"
 	fi
-	svc_restart
+	if [ "${1:-}" = reload ] && _svc_registered; then
+		/etc/init.d/"$SVC_ID" reload
+	else
+		svc_restart
+	fi
 }
 
 svc_revert() {
