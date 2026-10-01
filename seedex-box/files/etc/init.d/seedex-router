@@ -519,8 +519,14 @@ setup_nftables() {
 	[ "$ep_count" -gt 0 ] 2>/dev/null &&
 		log_debug "excluding $ep_count endpoint IPs from overlay"
 
-	local tail kill_chain=""
+	# The box's own IPv6 finds the overlay through the iif lo rule when the
+	# provider offers none, so traffic meant to go direct would ride the
+	# tunnel. The route is chosen at connect(): a reject there fails it at
+	# once, and the program falls back to IPv4 through the provider.
+	local no6="oifname @tunnels reject with icmpv6 type no-route"
+	local tail out6="" kill_chain=""
 	if [ "$DEFAULT_ROUTE" = "direct" ]; then
+		out6="meta nfproto ipv6 meta mark 0 ${no6}"
 		tail="ip daddr @${NFT_OVERLAY_SET} meta mark set ${FWMARK}
     ip daddr @${NFT_OVERLAY_DYN} meta mark set ${FWMARK}
     ip6 daddr @${NFT_OVERLAY_SET6} meta mark set ${FWMARK}
@@ -598,19 +604,24 @@ $(_pin_rules prerouting)
     ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } accept
     ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } accept
     ip daddr @dns_bootstrap accept
+    ip6 daddr @dns_bootstrap6 ${no6}
     ip6 daddr @dns_bootstrap6 accept
     jump dns_out
     ip daddr @uplink_probe accept
     ip daddr @block_ips drop
     ip6 daddr @block_ips6 drop
     ip daddr @endpoint_ips accept
+    ip6 daddr @endpoint_ips6 ${no6}
     ip6 daddr @endpoint_ips6 accept
 $(_pin_rules output)
     ip daddr @${NFT_DIRECT_SET} accept
     ip daddr @${NFT_DIRECT_DYN} accept
+    ip6 daddr @${NFT_DIRECT_SET6} ${no6}
+    ip6 daddr @${NFT_DIRECT_DYN6} ${no6}
     ip6 daddr @${NFT_DIRECT_SET6} accept
     ip6 daddr @${NFT_DIRECT_DYN6} accept
     ${tail}
+    ${out6}
   }
   ${kill_chain}
 }
