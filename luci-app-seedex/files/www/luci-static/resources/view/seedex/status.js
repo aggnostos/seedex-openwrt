@@ -6,6 +6,13 @@
 
 var SERVICES = [ 'router', 'vpn', 'proxy', 'dns' ];
 
+var REASONS = {
+	router_stopped: _('the router is stopped'),
+	stale: _('the watchdog has not reported lately'),
+	no_interfaces: _('no tunnel is up'),
+	all_unreachable: _('no tunnel answers')
+};
+
 return view.extend({
 	handleSave: null,
 	handleSaveApply: null,
@@ -52,13 +59,36 @@ return view.extend({
 				]) ];
 		}, this);
 
+		var u = s.uplink || {}, inet = u.internet || {}, ov = u.overlay || {};
+		var uplinkRows = [
+			[ api.mark(inet.up), _('Internet'), '',
+			  inet.up ? '%d ms'.format(inet.rtt) : _('unreachable') ],
+			[ api.mark(ov.up), _('Overlay'),
+			  ov.up ? ov.tunnel + (ov.via ? ' (' + ov.via + ')' : '') : '',
+			  ov.up ? (ov.rtt != null ? '%d ms'.format(ov.rtt) : '') : (REASONS[ov.reason] || ov.reason || '') ]
+		];
+
+		var stopAll = function() {
+			if (!confirm(_('Stop every Seedex service? Traffic leaves through the provider until they start again.')))
+				return Promise.resolve();
+			return act('', 'stop')();
+		};
+
 		return [
 			E('div', { 'class': 'cbi-section' }, [
-				E('h3', {}, _('Services')),
-				api.table([ '', '', _('State'), '' ], svcRows)
+				E('h3', {}, _('Uplink')),
+				api.table([ '', '', _('Tunnel'), _('RTT') ], uplinkRows)
 			]),
 			E('div', { 'class': 'cbi-section' }, [
-				E('pre', {}, s.text || '')
+				E('h3', {}, _('Services')),
+				E('div', {}, [
+					api.button(_('Start all'), 'cbi-button-action', act('', 'start'), this),
+					' ',
+					api.button(_('Stop all'), 'cbi-button-negative', stopAll, this),
+					' ',
+					api.button(_('Restart all'), 'cbi-button-action', act('', 'restart'), this)
+				]),
+				api.table([ '', '', _('State'), '' ], svcRows)
 			])
 		];
 	}

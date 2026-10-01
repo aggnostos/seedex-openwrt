@@ -100,90 +100,9 @@ cmd_version() {
 	printf '%s\n' "${version:-unknown}"
 }
 
-_probe_uplink() {
-	UPLINK_OK=0
-	UPLINK_RTT=""
-
-	local cached=""
-	if [ "$OVERLAY_FRESH" = 1 ]; then
-		cached=$(awk '$1 == "uplink" { print $2, $3; exit }' "$CONN_FILE")
-	fi
-	[ -n "$cached" ] || cached=$(seedex_probe_uplink)
-
-	case "$cached" in
-	"1 "*)
-		UPLINK_OK=1
-		UPLINK_RTT=${cached#1 }
-		;;
-	esac
-}
-
-_read_overlay() {
-	OVERLAY_FRESH=0
-	OVERLAY_AVAIL=0
-	OVERLAY_REASON=""
-	OVERLAY_ACTIVE=""
-	CONN_FILE="$SEEDEX_RUNDIR/router/connectivity.state"
-
-	if [ ! -f "$CONN_FILE" ]; then
-		OVERLAY_REASON="router_stopped"
-		return 0
-	fi
-
-	local interval
-	interval=$(uci -q get seedex-router.main.watchdog_interval)
-	[ "$interval" -gt 0 ] 2>/dev/null || interval=30
-
-	local _ts=0 _n=0 _ok=0 _active="" _stale=0
-	eval "$(awk -v now="$(date +%s)" -v fallback="$interval" '
-		$1 == "ts"       { ts = $2 }
-		$1 == "interval" { step = $2 }
-		$1 == "active"   { active = $2 }
-		$1 == "iface"    { n++; if ($3 == "1") ok++ }
-		END {
-			if (step + 0 <= 0) step = fallback
-			printf "_ts=%d _n=%d _ok=%d _active=%s\n", ts + 0, n + 0, ok + 0, (active == "" ? "\"\"" : "\"" active "\"")
-			printf "_stale=%d\n", (now - (ts + 0) > (step + 0) * 2) ? 1 : 0
-		}' "$CONN_FILE")"
-
-	if [ "$_stale" = 1 ]; then
-		OVERLAY_REASON="stale"
-		return 0
-	fi
-	OVERLAY_FRESH=1
-	if [ "$_n" -eq 0 ]; then
-		OVERLAY_REASON="no_interfaces"
-	elif [ "$_ok" -eq 0 ] || [ -z "$_active" ]; then
-		OVERLAY_REASON="all_unreachable"
-	else
-		OVERLAY_AVAIL=1
-		OVERLAY_ACTIVE="$_active"
-	fi
-}
-
-_load_iface_rtt() {
-	IFACE_RTT=""
-	[ -f "$CONN_FILE" ] || return 0
-	IFACE_RTT=$(awk '$1 == "iface" && $3 == "1" { printf " %s=%s", $2, $4 }' "$CONN_FILE")
-}
-
-_iface_rtt() {
-	local pair
-	for pair in $IFACE_RTT; do
-		case "$pair" in
-		"$1="*)
-			printf '%s\n' "${pair#*=}"
-			return 0
-			;;
-		esac
-	done
-	return 1
-}
-
 cmd_status() {
-	_read_overlay
-	_load_iface_rtt
-	_probe_uplink
+	seedex_overlay_read
+	seedex_uplink_read
 
 	local active_iface=""
 	[ -f "$SEEDEX_RUNDIR/router/active_iface" ] &&
@@ -202,7 +121,7 @@ cmd_status() {
 		printf '  [ ] %-24s unreachable\n' "Internet"
 	fi
 	if [ "$OVERLAY_AVAIL" = 1 ] && [ -n "$active_iface" ]; then
-		printf '  [*] %-24s %s ms\n' "Overlay (${active_name:-$active_iface})" "$(_iface_rtt "$active_iface")"
+		printf '  [*] %-24s %s ms\n' "Overlay (${active_name:-$active_iface})" "$(seedex_iface_rtt "$active_iface")"
 	else
 		printf '  [ ] %-24s unavailable (%s)\n' "Overlay" "${OVERLAY_REASON:-no_interfaces}"
 	fi

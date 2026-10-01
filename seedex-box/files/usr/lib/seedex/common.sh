@@ -245,6 +245,7 @@ SEEDEX_ROUTE_TABLE='100'
 SEEDEX_PROBE_URL='https://www.gstatic.com/generate_204'
 
 SEEDEX_ROUTER_STATE="$SEEDEX_RUNDIR/router/active_iface"
+SEEDEX_CONN_FILE="$SEEDEX_RUNDIR/router/connectivity.state"
 
 SEEDEX_PINS_FILE="$SEEDEX_RUNDIR/router/pins"
 
@@ -490,9 +491,73 @@ seedex_active_iface() {
 	cat "$SEEDEX_ROUTER_STATE" 2>/dev/null
 }
 
+# The provider's line for the status: the watchdog's last probe while its
+# state is fresh, a probe now otherwise. Sets UPLINK_OK and UPLINK_RTT.
+seedex_uplink_read() {
+	UPLINK_OK=0
+	UPLINK_RTT=""
+
+	local cached=""
+	if [ "$OVERLAY_FRESH" = 1 ]; then
+		cached=$(awk '$1 == "uplink" { print $2, $3; exit }' "$SEEDEX_CONN_FILE")
+	fi
+	[ -n "$cached" ] || cached=$(seedex_probe_uplink)
+
+	case "$cached" in
+	"1 "*)
+		UPLINK_OK=1
+		UPLINK_RTT=${cached#1 }
+		;;
+	esac
+}
+
+# What the watchdog last wrote about the tunnels, for the status: sets
+# OVERLAY_AVAIL with OVERLAY_ACTIVE, or OVERLAY_REASON.
+seedex_overlay_read() {
+	OVERLAY_FRESH=0
+	OVERLAY_AVAIL=0
+	OVERLAY_REASON=""
+	OVERLAY_ACTIVE=""
+
+	if [ ! -f "$SEEDEX_CONN_FILE" ]; then
+		OVERLAY_REASON="router_stopped"
+		return 0
+	fi
+
+	local interval
+	interval=$(uci -q get seedex-router.main.watchdog_interval)
+	[ "$interval" -gt 0 ] 2>/dev/null || interval=30
+
+	local _ts=0 _n=0 _ok=0 _active="" _stale=0
+	eval "$(awk -v now="$(date +%s)" -v fallback="$interval" '
+		$1 == "ts"       { ts = $2 }
+		$1 == "interval" { step = $2 }
+		$1 == "active"   { active = $2 }
+		$1 == "iface"    { n++; if ($3 == "1") ok++ }
+		END {
+			if (step + 0 <= 0) step = fallback
+			printf "_ts=%d _n=%d _ok=%d _active=%s\n", ts + 0, n + 0, ok + 0, (active == "" ? "\"\"" : "\"" active "\"")
+			printf "_stale=%d\n", (now - (ts + 0) > (step + 0) * 2) ? 1 : 0
+		}' "$SEEDEX_CONN_FILE")"
+
+	if [ "$_stale" = 1 ]; then
+		OVERLAY_REASON="stale"
+		return 0
+	fi
+	OVERLAY_FRESH=1
+	if [ "$_n" -eq 0 ]; then
+		OVERLAY_REASON="no_interfaces"
+	elif [ "$_ok" -eq 0 ] || [ -z "$_active" ]; then
+		OVERLAY_REASON="all_unreachable"
+	else
+		OVERLAY_AVAIL=1
+		OVERLAY_ACTIVE="$_active"
+	fi
+}
+
 seedex_iface_rtt() {
 	awk -v want="$1" '$1 == "iface" && $2 == want && $3 == "1" { print $4; exit }' \
-		"$SEEDEX_RUNDIR/router/connectivity.state" 2>/dev/null
+		"$SEEDEX_CONN_FILE" 2>/dev/null
 }
 
 seedex_config_states() {
@@ -594,7 +659,7 @@ _seedex_pin_rules() {
 }
 
 _seedex_iface_carries() {
-	[ -f "$SEEDEX_RUNDIR/router/connectivity.state" ] || return 0
+	[ -f "$SEEDEX_CONN_FILE" ] || return 0
 	[ -n "$(seedex_iface_rtt "$1")" ]
 }
 

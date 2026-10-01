@@ -45,9 +45,35 @@ _flags() {
 		    stale: (map({key: .[0], value: (.[2] == "true")}) | from_entries) }'
 }
 
+# The Uplink of sdx: the provider's line and the tunnel the overlay runs
+# through, with the protocol a proxy config chose.
+_uplink() {
+	local active name="" via="" rtt=""
+	seedex_overlay_read
+	seedex_uplink_read
+	active=$(seedex_active_iface)
+	if [ "$OVERLAY_AVAIL" = 1 ] && [ -n "$active" ]; then
+		name=$(seedex_iface_name "$active")
+		rtt=$(seedex_iface_rtt "$active")
+		case "$active" in
+		"$SEEDEX_PROXY_IFACE_PREFIX"*) via=$(seedex_proxy_now "$active") ;;
+		esac
+	else
+		active=""
+	fi
+	jq -n --arg iok "$UPLINK_OK" --arg irtt "$UPLINK_RTT" --arg iface "$active" --arg name "$name" \
+		--arg via "$via" --arg rtt "$rtt" --arg reason "${OVERLAY_REASON:-no_interfaces}" '
+		def ms: if . == "" then null else tonumber end;
+		{ internet: { up: ($iok == "1"), rtt: ($irtt | ms) },
+		  overlay: (if $iface != ""
+		    then { up: true, tunnel: (if $name == "" then $iface else $name end),
+		           via: (if $via == "" then null else $via end), rtt: ($rtt | ms) }
+		    else { up: false, reason: $reason } end) }'
+}
+
 do_status() {
-	jq -n --arg text "$(sdx 2>&1)" --argjson flags "$(_flags)" --argjson pending "$(_pending)" \
-		'$flags + {text: $text, pending: $pending}'
+	jq -n --argjson flags "$(_flags)" --argjson pending "$(_pending)" --argjson uplink "$(_uplink)" \
+		'$flags + {pending: $pending, uplink: $uplink}'
 }
 
 do_config() {
