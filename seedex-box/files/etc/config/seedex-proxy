@@ -11,7 +11,8 @@ config proxy 'main'
 # proxy1 and so on — inside one sing-box instance, and routes that interface
 # to the file's outbound. The router's watchdog then picks between them by
 # its watchdog_mode, exactly as it does with the VPN tunnels. A file holding several
-# outbounds chooses among them by urltest on its own interface. Protocol
+# outbounds chooses among them by urltest on its own interface, probing the
+# router's watchdog_url every urltest_interval. Protocol
 # details stay entirely inside the files.
 #
 # `option priority` ranks the tunnel for the priority and failover modes:

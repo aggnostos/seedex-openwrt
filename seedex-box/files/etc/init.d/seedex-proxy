@@ -7,7 +7,7 @@ TAG="seedex-proxy"
 . /lib/functions.sh
 
 PROXY_RUNDIR="$SEEDEX_RUNDIR/proxy"
-CONFIG_FILE="$PROXY_RUNDIR/config.json"
+CONFIG_FILE="$SEEDEX_PROXY_CONFIG"
 IFACE_MAP="$PROXY_RUNDIR/ifaces"
 
 NFT_TABLE="seedex_proxy"
@@ -159,7 +159,7 @@ _assemble_config() {
 		--arg prefix "$SEEDEX_PROXY_IFACE_PREFIX" \
 		--arg level "$LOG_LEVEL" \
 		--arg interval "$URLTEST_INTERVAL" \
-		--arg probe "$SEEDEX_PROBE_URL" '
+		--arg probe "$(seedex_probe_url)" '
 		([ $outbounds[] | ._src ] | unique) as $srcs
 		| [ $srcs[] as $s
 		    | [ $outbounds[] | select(._src == $s) ] as $group

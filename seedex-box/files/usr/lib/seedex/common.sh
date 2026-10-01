@@ -287,6 +287,23 @@ seedex_iface_name() {
 }
 
 SEEDEX_PROXY_IFACE_PREFIX="proxy"
+SEEDEX_PROXY_CONFIG="$SEEDEX_RUNDIR/proxy/config.json"
+
+# The URL that every probe of a tunnel fetches: the watchdog's, and the one
+# sing-box urltest measures the outbounds of a config against.
+seedex_probe_url() {
+	local url
+	url=$(uci -q get seedex-router.main.watchdog_url)
+	printf '%s\n' "${url:-$SEEDEX_PROBE_URL}"
+}
+
+# sing-box reads the URL once, when its config is assembled.
+seedex_proxy_probe_stale() {
+	local url
+	url=$(jq -r '[.outbounds[]? | select(.type == "urltest") | .url][0] // empty' \
+		"$SEEDEX_PROXY_CONFIG" 2>/dev/null)
+	[ -n "$url" ] && [ "$url" != "$(seedex_probe_url)" ]
+}
 
 seedex_iface_for_config() {
 	local owner="$1" name="$2"

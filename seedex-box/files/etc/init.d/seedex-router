@@ -1021,12 +1021,16 @@ reload_service() {
 	if ! _table_exists || [ "$(_settings_digest)" != "$(cat "$SETTINGS_STAMP" 2>/dev/null)" ]; then
 		log_info "settings changed, restarting"
 		restart
-		return
+	else
+		seedex_config_stamp router
+		download_lists new
+		reapply
+		seedex_watchdog_wake
 	fi
-	seedex_config_stamp router
-	download_lists new
-	reapply
-	seedex_watchdog_wake
+	if seedex_proxy_probe_stale; then
+		log_info "watchdog_url changed, restarting seedex-proxy for its urltest"
+		/etc/init.d/seedex-proxy restart
+	fi
 }
 
 EXTRA_COMMANDS="reapply"
