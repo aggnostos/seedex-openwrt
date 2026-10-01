@@ -288,6 +288,20 @@ seedex_iface_name() {
 
 SEEDEX_PROXY_IFACE_PREFIX="proxy"
 SEEDEX_PROXY_CONFIG="$SEEDEX_RUNDIR/proxy/config.json"
+SEEDEX_PROXY_API="$SEEDEX_RUNDIR/proxy/api"
+SEEDEX_PROXY_API_PORT=9095
+
+# The outbound a config's urltest group keeps its traffic on, by the
+# config's interface. A config with one outbound has no group: nothing.
+seedex_proxy_now() {
+	local n addr secret now
+	n="${1#"$SEEDEX_PROXY_IFACE_PREFIX"}"
+	read -r addr secret 2>/dev/null <"$SEEDEX_PROXY_API" || return 0
+	now=$(curl -s --max-time 2 -H "Authorization: Bearer $secret" "http://$addr/proxies/auto-$n" 2>/dev/null |
+		jsonfilter -e '@.now' 2>/dev/null)
+	# Outbounds whose tag another config took first carry the suffix -<n>.
+	[ -z "$now" ] || printf '%s\n' "${now%-"$n"}"
+}
 
 # The URL that every probe of a tunnel fetches: the watchdog's, and the one
 # sing-box urltest measures the outbounds of a config against.
@@ -482,7 +496,7 @@ seedex_iface_rtt() {
 }
 
 seedex_config_states() {
-	local config="$1" type="$2" owner="$3" idx=0 name enabled iface active rtt state is_active reserved priority
+	local config="$1" type="$2" owner="$3" idx=0 name enabled iface active rtt state is_active reserved priority via
 	active=$(seedex_active_iface)
 	while uci -q get "${config}.@${type}[$idx]" >/dev/null 2>&1; do
 		name=$(uci -q get "${config}.@${type}[$idx].name")
@@ -491,7 +505,7 @@ seedex_config_states() {
 		priority=$(uci -q get "${config}.@${type}[$idx].priority")
 		name="${name:-#$idx}"
 		idx=$((idx + 1))
-		iface=""
+		iface="" via=""
 		[ "$enabled" = 1 ] && iface=$(seedex_iface_for_config "$owner" "$name")
 		is_active=0
 		[ -n "$iface" ] && [ "$iface" = "$active" ] && is_active=1
@@ -505,27 +519,32 @@ seedex_config_states() {
 			rtt=$(seedex_iface_rtt "$iface")
 			state=unreachable
 			[ -z "$rtt" ] || state=up
+			[ "$owner" != proxy ] || via=$(seedex_proxy_now "$iface")
 		fi
-		printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$state" "$is_active" "$rtt" "${reserved:-0}" "${priority:-0}"
+		printf '%s\037%s\037%s\037%s\037%s\037%s\037%s\n' "$name" "$state" "$is_active" "$rtt" "${reserved:-0}" "${priority:-0}" "$via"
 	done
 }
 
 seedex_status_configs() {
-	local config="$1" type="$2" owner="$3" tab name state active rtt reserved priority shown states
+	local config="$1" type="$2" owner="$3" sep name state active rtt reserved priority via shown states
 	states=$(seedex_config_states "$config" "$type" "$owner")
 	[ -n "$states" ] || {
 		printf '  %-10s none\n' "Configs:"
 		return 0
 	}
 	echo "  Configs:"
-	tab=$(printf '\t')
-	while IFS="$tab" read -r name state active rtt reserved priority; do
+	# A tab would collapse an empty field, such as the RTT of a tunnel that
+	# does not answer, and shift the ones after it. A config name may hold
+	# any printable character, so the fields are split on a control one.
+	sep=$(printf '\037')
+	while IFS="$sep" read -r name state active rtt reserved priority via; do
 		[ -n "$name" ] || continue
 		case "$state" in
 		up) shown="${rtt:+$rtt ms}" ;;
 		down) shown="" ;;
 		*) shown="$state" ;;
 		esac
+		[ -z "$via" ] || name="$name ($via)"
 		[ "$reserved" != 1 ] || shown="${shown:+$shown, }reserved"
 		[ "${priority:-0}" = 0 ] || shown="${shown:+$shown, }priority $priority"
 		if [ -n "$shown" ]; then
