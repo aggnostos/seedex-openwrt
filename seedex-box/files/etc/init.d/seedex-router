@@ -31,6 +31,13 @@ PINS_FILE="$SEEDEX_PINS_FILE"
 
 RULE_PRIO=100
 
+# After the main table (32766): the box's own IPv6 finds a route through the
+# overlay when the provider offers none. Its sockets look the route up before
+# nftables marks them, so without one they fail as unreachable at connect().
+# iif lo keeps LAN traffic out of it, and a tunnel's own packets stay out of
+# the overlay one rule earlier.
+LOCAL6_PRIO=32800
+
 _load_config() {
 	seedex_router_load
 	FWMARK="$SEEDEX_FWMARK"
@@ -696,6 +703,10 @@ setup_policy_routing() {
 	ip rule add fwmark "$FWMARK" table "$ROUTE_TABLE" priority "$RULE_PRIO"
 	ip -6 rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
 	ip -6 rule add fwmark "$FWMARK" table "$ROUTE_TABLE" priority "$RULE_PRIO"
+	ip -6 rule del iif lo table "$ROUTE_TABLE" priority "$LOCAL6_PRIO" 2>/dev/null
+	ip -6 rule del fwmark "$SEEDEX_WG_FWMARK" priority "$((LOCAL6_PRIO - 1))" 2>/dev/null
+	ip -6 rule add fwmark "$SEEDEX_WG_FWMARK" unreachable priority "$((LOCAL6_PRIO - 1))"
+	ip -6 rule add iif lo table "$ROUTE_TABLE" priority "$LOCAL6_PRIO"
 	ip -6 route replace unreachable default table "$ROUTE_TABLE"
 	log_debug "fwmark=$FWMARK table=$ROUTE_TABLE priority=$RULE_PRIO"
 
@@ -724,6 +735,8 @@ teardown_policy_routing() {
 	ip rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
 	ip route flush table "$ROUTE_TABLE" 2>/dev/null
 	ip -6 rule del fwmark "$FWMARK" table "$ROUTE_TABLE" 2>/dev/null
+	ip -6 rule del iif lo table "$ROUTE_TABLE" priority "$LOCAL6_PRIO" 2>/dev/null
+	ip -6 rule del fwmark "$SEEDEX_WG_FWMARK" priority "$((LOCAL6_PRIO - 1))" 2>/dev/null
 	ip -6 route flush table "$ROUTE_TABLE" 2>/dev/null
 	rm -f "$STATE_FILE"
 	log_debug "policy routing removed"
