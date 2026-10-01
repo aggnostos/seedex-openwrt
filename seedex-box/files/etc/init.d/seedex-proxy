@@ -116,10 +116,14 @@ _assemble_config() {
 		return 1
 	}
 
+	# A config brings its own outbounds only: the box adds direct and builds
+	# the urltest group over them, so a file's own groups would nest in it.
 	local outbounds
 	# shellcheck disable=SC2086
 	outbounds=$(jq -s '
-		[ .[] | [ .outbounds[]? | select(.tag != "direct") ] ]
+		[ .[] | [ .outbounds[]?
+		          | select(.tag != "direct" and
+		                   ((.type // "") | IN("direct", "block", "dns", "urltest", "selector") | not)) ] ]
 		| to_entries
 		| reduce .[] as $e ({ seen: [], out: [] };
 		    . as $acc

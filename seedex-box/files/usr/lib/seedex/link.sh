@@ -290,6 +290,79 @@ _link_unpack() {
 	done
 }
 
+# Servers offered a proxy config per protocol, <server>-<protocol>, and now
+# offer them all as one, <server>-proxy. The first sync that sees it carries
+# the selection, the pinned rules and the settings of the old ones over, and
+# the sweep then drops the old ones. LINK_MERGED keeps "name priority
+# reserved" for each, to set once the new config is placed.
+LINK_MERGED=""
+
+_link_merge_proxy() {
+	local link="$1" dir="$2" f new prefix sid name old p prio res selected
+	selected=$(_link_selected "$link")
+	for f in "$dir"/*-proxy.json; do
+		[ -f "$f" ] || continue
+		new="${f##*/}"
+		new="${new%.json}"
+		prefix="${new%-proxy}-"
+		! _find_section_by_name seedex-proxy config "$new" >/dev/null || continue
+		old="" prio="" res=1
+		for sid in $(uci -q show seedex-proxy | awk -F= -v l="'$link'" '
+			$1 ~ /\.link$/ && $2 == l { sub(/^seedex-proxy\./, "", $1); sub(/\.link$/, "", $1); print $1 }'); do
+			name=$(uci -q get "seedex-proxy.$sid.name")
+			case "$name" in
+			"$prefix"*) ;;
+			*) continue ;;
+			esac
+			old="$old $name"
+			p=$(uci -q get "seedex-proxy.$sid.priority")
+			[ -n "$prio" ] && [ "${p:-0}" -le "$prio" ] 2>/dev/null || prio="${p:-0}"
+			[ "$(uci -q get "seedex-proxy.$sid.reserved")" = 1 ] || res=0
+		done
+		[ -n "$old" ] || continue
+		if ! _link_wanted "$selected" "*"; then
+			for name in $old; do
+				uci -q del_list "seedex-link.$link.config=$name"
+			done
+			uci add_list "seedex-link.$link.config=$new"
+		fi
+		# shellcheck disable=SC2086
+		_link_repin "$new" $old
+		LINK_MERGED="$LINK_MERGED $new $prio $res"
+		echo "  proxy:$old merge into $new"
+	done
+	uci commit seedex-link
+}
+
+# Rules pinned to any of the old configs follow the one replacing them.
+_link_repin() {
+	local new="$1" key val
+	shift
+	uci -q show seedex-router | sed -n "s/^\(seedex-router\.[^.]*\.iface\)='\(.*\)'$/\1 \2/p" |
+		while read -r key val; do
+			case " $* " in
+			*" $val "*) ;;
+			*) continue ;;
+			esac
+			uci set "$key=$new"
+			echo "  ~ router ${key#seedex-router.}=$new"
+		done
+}
+
+_link_merged_settle() {
+	local sid
+	# shellcheck disable=SC2086
+	set -- $LINK_MERGED
+	while [ $# -ge 3 ]; do
+		if sid=$(_find_section_by_name seedex-proxy config "$1"); then
+			uci set "seedex-proxy.$sid.priority=$2"
+			[ "$3" != 1 ] || uci set "seedex-proxy.$sid.reserved=1"
+		fi
+		shift 3
+	done
+	LINK_MERGED=""
+}
+
 _link_sync_one() {
 	local name="$1" tmp payload changed=0 svc kind ext f keep rc err selected missing=0 seen c
 	tmp=$(mktemp -d)
@@ -301,6 +374,7 @@ _link_sync_one() {
 		return 1
 	fi
 	_link_unpack "$payload" "$tmp"
+	_link_merge_proxy "$name" "$tmp/proxy"
 	selected=$(_link_selected "$name")
 
 	seen=""
@@ -324,6 +398,7 @@ _link_sync_one() {
 		done
 		_link_sweep "$svc" "$name" "$keep" && changed=1
 	done
+	_link_merged_settle
 	rm -rf "$tmp"
 	for c in $selected; do
 		[ "$c" != "*" ] || continue
@@ -336,8 +411,13 @@ _link_sync_one() {
 	if [ "$changed" = 1 ] && [ "${LINK_NO_APPLY:-0}" = 1 ]; then
 		echo "$name: synced; the changes are pending until 'sdx apply'"
 	elif [ "$changed" = 1 ]; then
-		for svc in vpn proxy; do
+		for svc in vpn proxy router; do
 			[ -n "$(uci changes "seedex-$svc" 2>/dev/null)" ] || seedex_config_stale "$svc" || continue
+			# Repinned rules must not start a router nobody started.
+			if [ "$svc" = router ] && ! seedex_service_registered router; then
+				uci commit seedex-router
+				continue
+			fi
 			_svc "$svc" apply >/dev/null
 		done
 		echo "$name: synced, services restarted"
