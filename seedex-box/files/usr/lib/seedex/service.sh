@@ -344,7 +344,7 @@ svc_apply() {
 	if [ -n "$pending" ]; then
 		_swap_staged
 		uci commit "$SVC_ID"
-		echo "saved $SVC_ID"
+		echo "$SVC_ID saved"
 	fi
 	svc_restart
 }
