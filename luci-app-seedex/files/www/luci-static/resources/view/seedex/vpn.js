@@ -7,5 +7,8 @@ return configs.create({
 	nameHint: _('Becomes the config name; the .conf extension is added when missing'),
 	placeholder: '[Interface]\nPrivateKey = ...\nAddress = 10.66.67.2/32\n\n[Peer]\nPublicKey = ...\nEndpoint = host:51821',
 	entrySettings: [],
-	settings: []
+	settings: [
+		{ key: 'mtu', label: _('MTU'), placeholder: 'auto',
+		  hint: _('auto: the uplink MTU toward the server less the tunnel overhead') }
+	]
 });

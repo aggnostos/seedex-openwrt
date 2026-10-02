@@ -4,8 +4,9 @@ SVC_NAME="vpn"
 . /usr/lib/seedex/service.sh
 SVC_SECTION="config"
 SVC_STORE_DIR="$SEEDEX_VPN_DIR"
+SVC_CONFIG_KEYS="mtu"
 
-SVC_ACTIONS="start stop restart show enable disable remove changes apply revert export reset"
+SVC_ACTIONS="start stop restart show enable disable remove config changes apply revert export reset"
 
 _vpn_entry() {
 	local subcmd="$1"
@@ -61,6 +62,7 @@ _vpn_entry() {
 		local iface
 		iface=$(seedex_iface_for_config vpn "$name")
 		[ -z "$iface" ] || field "Interface:" "$iface"
+		[ -z "$iface" ] || field "MTU:" "$(cat "/sys/class/net/$iface/mtu" 2>/dev/null || echo -)"
 		field "Config:" "$config"
 
 		if [ -f "$config" ]; then
@@ -143,6 +145,7 @@ show [#|name ...]	List entries, or show some	List configs, or show the named one
 enable [#|name ...]	Enable the service or entries	Enable the service, or the named configs
 disable [#|name ...]	Disable the service or entries	Disable the service (also at boot), or the named configs
 remove <#|name ...>	Remove entries	Remove configs and stage their files for removal
+config	Manage service settings	Show service settings, or get <key>, set k=v ...
 changes	Show pending UCI changes
 apply	Save pending changes and restart
 revert	Revert pending UCI changes
@@ -172,6 +175,7 @@ svc_dispatch() {
 	apply) svc_apply ;;
 	revert) svc_revert ;;
 	export) svc_export ;;
+	config) svc_config "$@" ;;
 	reset) svc_reset ;;
 	*) return 127 ;;
 	esac

@@ -37,6 +37,60 @@ wg_endpoints() {
 		}' "$1"
 }
 
+# Prints the device a packet toward the host leaves by, with the route's own
+# mtu when it sets one. A host name is not resolved here: the encrypted DNS may
+# still be starting, so the default route stands in for it.
+_wg_route() {
+	local host="$1"
+	case "$host" in
+	*:*) ;;
+	*[!0-9.]*) host=1.1.1.1 ;;
+	esac
+	ip route get "$host" mark "$SEEDEX_WG_FWMARK" 2>/dev/null | awk '
+		{ for (i = 1; i < NF; i++) { if ($i == "dev") dev = $(i + 1); if ($i == "mtu") mtu = $(i + 1) } }
+		END { if (dev != "") print dev, mtu }'
+}
+
+# Picks the tunnel MTU: the config's own option, then the file's MTU, then the
+# service setting. auto takes the smallest uplink MTU toward the endpoints less
+# 80 bytes of WireGuard over IPv6 and the S4 padding AmneziaWG adds to data.
+wg_mtu() {
+	local config="$1" name="$2" mtu="$3" fallback="$4" pad host dev route link=""
+	[ -n "$mtu" ] || mtu=$(wg_field "$config" MTU)
+	[ -n "$mtu" ] || mtu="$fallback"
+	case "$mtu" in
+	"" | auto) ;;
+	*[!0-9]*)
+		log_warn "config '$name': mtu '$mtu' is not a number, using auto"
+		;;
+	*)
+		[ "$mtu" -ge 1280 ] || log_warn "config '$name': mtu $mtu is below 1280, IPv6 will not pass"
+		echo "$mtu"
+		return 0
+		;;
+	esac
+
+	pad=$(wg_field "$config" S4)
+	case "$pad" in "" | *[!0-9]*) pad=0 ;; esac
+	for host in $(wg_endpoints "$config"); do
+		route=$(_wg_route "$host")
+		[ -n "$route" ] || continue
+		dev=${route%% *}
+		mtu=${route#"$dev"}
+		mtu=${mtu# }
+		[ -n "$mtu" ] || mtu=$(cat "/sys/class/net/$dev/mtu" 2>/dev/null)
+		case "$mtu" in "" | *[!0-9]*) continue ;; esac
+		[ -n "$link" ] && [ "$link" -le "$mtu" ] || link="$mtu"
+	done
+	[ -n "$link" ] || {
+		log_debug "config '$name': no route to the endpoint yet, mtu from a 1500 uplink"
+		link=1500
+	}
+	mtu=$((link - 80 - pad))
+	[ "$mtu" -ge 1280 ] || mtu=1280
+	echo "$mtu"
+}
+
 wg_validate() {
 	local file="$1"
 	wg_is_family "$file" || {
@@ -58,7 +112,7 @@ wg_validate() {
 }
 
 wg_up() {
-	local tool="$1" link_type="$2" iface="$3" config="$4" name="$5"
+	local tool="$1" link_type="$2" iface="$3" config="$4" name="$5" want="${6:-}" fallback="${7:-}"
 	local address mtu staged err one added=0
 
 	command -v "$tool" >/dev/null 2>&1 || {
@@ -70,8 +124,7 @@ wg_up() {
 		log_err "config '$name': no Address in '$config'"
 		return 1
 	}
-	mtu=$(wg_field "$config" MTU)
-	[ -n "$mtu" ] || mtu=1420
+	mtu=$(wg_mtu "$config" "$name" "$want" "$fallback")
 
 	ip link delete "$iface" 2>/dev/null
 	ip link add dev "$iface" type "$link_type" 2>/dev/null || {

@@ -152,6 +152,8 @@ _module_config() {
 		;;
 	set)
 		[ $# -gt 0 ] || usage "sdx ${uci_config#seedex-} config set key=value ..."
+		uci -q get "${uci_config}.${section}" >/dev/null ||
+			uci set "${uci_config}.${section}=${uci_config#seedex-}"
 		local arg key val k valid changes=0
 		for arg in "$@"; do
 			key="${arg%%=*}"

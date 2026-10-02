@@ -9,6 +9,8 @@
 #
 # `option priority` ranks the tunnel for the priority and failover modes:
 # higher wins, 0 by default. `sdx priority <name> <number>` sets it.
+# `option mtu` on a config sets its tunnel MTU over the file's own MTU and the
+# service setting below. It lives in UCI, so a link sync keeps it.
 # `option reserved '1'` keeps a tunnel out of the watchdog's choice, leaving
 # it to the router rules that name it in `iface=`. `sdx reserve` sets it.
 #
@@ -21,3 +23,12 @@
 #
 # Sections are created by `sdx import <file.conf>`, `sdx link` or LuCI. None
 # are shipped by default.
+
+# Service settings, `sdx vpn config` shows them.
+#
+# mtu: the MTU of a tunnel whose config and file set none. `auto` takes the
+#      uplink MTU toward the server less 80 bytes of WireGuard overhead and
+#      the S4 padding of AmneziaWG: 1420 on a 1500 uplink, 1412 on PPPoE.
+#      A number sets it for every such tunnel.
+config vpn 'main'
+	option mtu 'auto'

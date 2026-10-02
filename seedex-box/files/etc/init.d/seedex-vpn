@@ -13,7 +13,7 @@ NFT_TABLE="seedex_vpn"
 
 setup_interface() {
 	local section="$1"
-	local enabled config name proto interface reserved
+	local enabled config name proto interface reserved mtu
 
 	config_get_bool enabled "$section" enabled 0
 	[ "$enabled" -eq 1 ] || return 0
@@ -22,6 +22,7 @@ setup_interface() {
 	config_get name "$section" name "$section"
 	config_get proto "$section" proto ''
 	config_get_bool reserved "$section" reserved 0
+	config_get mtu "$section" mtu ''
 
 	[ -n "$config" ] || {
 		log_err "config '$name': missing config path"
@@ -48,7 +49,7 @@ setup_interface() {
 	interface="$proto$n"
 	eval "IFACE_N_$proto=$((n + 1))"
 
-	"vpn_${proto}_up" "$interface" "$config" "$name" || return 1
+	"vpn_${proto}_up" "$interface" "$config" "$name" "$mtu" "$MTU" || return 1
 
 	echo "$interface $proto" >>"$RUNDIR/active_ifaces"
 	seedex_register_iface "$interface" "vpn" "$name" "$reserved"
@@ -76,6 +77,7 @@ service_triggers() {
 
 start_service() {
 	config_load seedex-vpn
+	config_get MTU main mtu auto
 	seedex_config_stamp vpn
 	seedex_prune_configs seedex-vpn config "$SEEDEX_VPN_DIR"
 
