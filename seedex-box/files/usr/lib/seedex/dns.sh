@@ -32,7 +32,7 @@ stop	Stop the service
 restart	Restart the service
 enable	Enable the service
 disable	Disable the service (also at boot)
-config	Manage service settings	Manage service settings: show, get <key>, set k=v ...
+config	Manage service settings	Show service settings, or get <key>, set k=v ...
 changes	Show pending UCI changes
 apply	Save pending changes and restart
 revert	Revert pending UCI changes

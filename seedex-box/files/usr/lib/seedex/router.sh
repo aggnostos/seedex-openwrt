@@ -615,7 +615,7 @@ update <#|name> k=v ...	Modify an entry	Modify a rule: type= name= iface= list_*
 enable [#|name ...]	Enable the service or entries	Enable the service, or the named rules
 disable [#|name ...]	Disable the service or entries	Disable the service (also at boot), or the named rules
 remove <#|name ...>	Remove entries	Remove rules
-config	Manage service settings	Manage service settings: show, get <key>, set k=v ...
+config	Manage service settings	Show service settings, or get <key>, set k=v ...
 changes	Show pending UCI changes
 apply	Save pending changes and restart
 revert	Revert pending UCI changes

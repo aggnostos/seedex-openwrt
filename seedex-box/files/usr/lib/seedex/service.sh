@@ -123,11 +123,12 @@ _section_remove() {
 }
 
 _module_config() {
-	local uci_config="$1" section="$2" keys="$3" subcmd="$4"
-	shift 4
+	local uci_config="$1" section="$2" keys="$3" subcmd="${4:-}"
+	shift 3
+	[ $# -eq 0 ] || shift
 
 	case "$subcmd" in
-	show)
+	"")
 		for key in $keys; do
 			local val
 			val=$(uci -q get "${uci_config}.${section}.${key}")
@@ -170,7 +171,7 @@ settable: $keys"
 		;;
 	*)
 		set -- \
-			"show                          Show all settings" \
+			"(no command)                  Show all settings" \
 			"get <key>                     Get a setting" \
 			"set key=value ...             Set one or more settings" \
 			"" \
@@ -180,7 +181,7 @@ settable: $keys"
 			val=$(uci -q get "${uci_config}.${section}.${key}")
 			set -- "$@" "  $key (current: ${val:-(not set)})"
 		done
-		usage_block "sdx ${uci_config#seedex-} config <command> [options]" "$@"
+		usage_block "sdx ${uci_config#seedex-} config [<command> [options]]" "$@"
 		;;
 	esac
 }

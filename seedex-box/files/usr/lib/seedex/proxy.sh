@@ -135,7 +135,7 @@ show [#|name ...]	List entries, or show some	List configs, or show the named one
 enable [#|name ...]	Enable the service or entries	Enable the service, or the named configs
 disable [#|name ...]	Disable the service or entries	Disable the service (also at boot), or the named configs
 remove <#|name ...>	Remove entries	Remove configs and stage their files for removal
-config	Manage service settings	Manage service settings: show, get <key>, set k=v ...
+config	Manage service settings	Show service settings, or get <key>, set k=v ...
 changes	Show pending UCI changes
 apply	Save pending changes and restart
 revert	Revert pending UCI changes

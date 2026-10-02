@@ -419,7 +419,7 @@ cmd_help() {
 	section "Service:"
 	echo "  start | stop | restart        Control the service now"
 	echo "  enable | disable              Keep the service on or off across reboots"
-	echo "  config                        Service settings: show, get <key>, set k=v ..."
+	echo "  config                        Service settings, or get <key>, set k=v ..."
 	echo "  changes | apply | revert      Pending changes: show, save and restart, drop"
 	echo
 	section "Entries (rules in router, configs in vpn and proxy):"
