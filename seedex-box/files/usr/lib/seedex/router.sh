@@ -362,7 +362,11 @@ use 'sdx router update' to change it, or pick another name"
 				_rule_list "$path" "${arg%%=*}" del "${arg#*=}"
 				;;
 			name=*)
+				[ -n "${arg#*=}" ] || die "name= takes the new name of the rule"
 				_reject_ctrl "${arg#*=}"
+				[ "${arg#*=}" = "$(uci -q get "${path}.name")" ] ||
+					! _find_section_by_name seedex-router rule "${arg#*=}" >/dev/null ||
+					die "rule '${arg#*=}' already exists"
 				uci set "${path}.name=${arg#*=}"
 				echo "  name → ${arg#*=}"
 				changes=$((changes + 1))
