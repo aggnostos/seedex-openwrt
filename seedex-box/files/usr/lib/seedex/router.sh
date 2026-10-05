@@ -85,6 +85,30 @@ _rule_dns_set() {
 	done
 }
 
+# uci writes each change at once, so a check that fails halfway through an
+# add or update would leave half of it pending. The pending changes are put
+# back as they were unless the command finishes.
+_delta_guard() {
+	DELTA_FILE="$SEEDEX_UCI_DELTA_DIR/$SVC_ID"
+	DELTA_SAVED=$(mktemp)
+	cp "$DELTA_FILE" "$DELTA_SAVED" 2>/dev/null || : >"$DELTA_SAVED"
+	trap _delta_restore EXIT
+}
+
+_delta_restore() {
+	if [ -s "$DELTA_SAVED" ]; then
+		cp "$DELTA_SAVED" "$DELTA_FILE"
+	else
+		rm -f "$DELTA_FILE"
+	fi
+	rm -f "$DELTA_SAVED"
+}
+
+_delta_keep() {
+	trap - EXIT
+	rm -f "$DELTA_SAVED"
+}
+
 _rule_kind() {
 	local path="$1"
 	if [ -n "$(uci -q get "${path}.client_mac")$(uci -q get "${path}.client_ip")" ]; then
@@ -225,6 +249,7 @@ _router_entry() {
 		[ -n "$name" ] || usage "sdx router add <name> type=direct|overlay|block [iface=<config>] [...]"
 		_reject_ctrl "$name"
 		shift
+		_delta_guard
 
 		local type="" iface_name="" list_url="" list_path="" list_refresh="" dns=""
 		local add_domains="" add_ips="" add_macs="" add_clients="" v
@@ -309,6 +334,7 @@ use 'sdx router update' to change it, or pick another name"
 			_rule_dns_allowed "seedex-router.${sid}"
 		}
 
+		_delta_keep
 		log_debug "router: added rule '$name' (type=$type)"
 		echo "added rule '$name' (type=$type)"
 		;;
@@ -320,6 +346,7 @@ use 'sdx router update' to change it, or pick another name"
 		path=$(_section_at seedex-router rule rule "$idx" "router update") || exit $?
 
 		[ $# -gt 0 ] || die "no actions specified"
+		_delta_guard
 		local changes=0
 		for arg in "$@"; do
 			case "$arg" in
@@ -439,6 +466,7 @@ use 'sdx router update' to change it, or pick another name"
 		done
 
 		_rule_dns_allowed "$path"
+		_delta_keep
 		if [ "$changes" -gt 0 ]; then
 			log_debug "router: updated rule #$idx ($changes change(s))"
 			echo "rule #$idx updated ($changes change(s))"
