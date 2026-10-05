@@ -63,7 +63,7 @@ _link_fetch() {
 
 _link_place() {
 	local svc="$1" link="$2" file="$3" kind="$4"
-	local name base sid dest reason
+	local name base sid dest reason staged
 	base="${file##*/}"
 	name="${base%.*}"
 	reason=$(seedex_config_validate "$file" "$kind") || {
@@ -87,14 +87,17 @@ _link_place() {
 		return 1
 	fi
 	dest=$(uci -q get "seedex-$svc.$sid.config")
+	[ -n "$dest" ] || return 1
 	[ "$svc" != vpn ] || [ -n "$(uci -q get "seedex-vpn.$sid.proto")" ] ||
 		uci set "seedex-vpn.$sid.proto=$(seedex_vpn_detect "$file")"
 	if [ -f "$dest" ] && cmp -s "$file" "$dest"; then
 		[ -z "$owner" ] && return 0
 		return 2
 	fi
-	cp "$file" "$dest" && chmod 600 "$dest" || return 1
-	seedex_config_touch "$svc"
+	# Like an import over an existing name: the file waits beside the
+	# running one until apply swaps it in.
+	staged=$(_stage_config "$file" "${dest%/*}") || return 1
+	uci set "seedex-$svc.$sid.staged=$staged"
 	echo "  ~ $svc $name"
 }
 
