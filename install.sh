@@ -207,13 +207,37 @@ if [ "$PM" = opkg ] && opkg status dnsmasq 2>/dev/null | grep -q '^Status:.*inst
 	rm -f /tmp/dnsmasq-full_*.ipk
 fi
 
+# A field of the control file inside an .ipk.
+ipk_field() {
+	tar -xzOf "$1" ./control.tar.gz | tar -xzOf - ./control | sed -n "s/^$2: //p"
+}
+
+# With --force-reinstall opkg removes a package and installs it anew: its
+# services stop and post-upgrade never runs. Only a file of the version
+# already installed needs it, since opkg skips that one otherwise.
+opkg_install_files() {
+	local f name same="" newer=""
+	for f in "$@"; do
+		name=$(ipk_field "$f" Package)
+		if [ "$(ipk_field "$f" Version)" = "$(opkg status "$name" 2>/dev/null | sed -n 's/^Version: //p')" ]; then
+			same="$same $f"
+		else
+			newer="$newer $f"
+		fi
+	done
+	# shellcheck disable=SC2086
+	[ -z "$newer" ] || opkg install $newer || return 1
+	# shellcheck disable=SC2086
+	[ -z "$same" ] || opkg install --force-reinstall $same
+}
+
 log "installing seedex-box"
 if [ -n "$PKGS" ]; then
 	# shellcheck disable=SC2086
 	case "$PM:$seedex_key_ok" in
 	apk:1) apk add $PKGS ;;
 	apk:0) apk add --allow-untrusted $PKGS ;;
-	opkg:*) opkg install --force-reinstall $PKGS ;;
+	opkg:*) opkg_install_files $PKGS ;;
 	esac
 elif [ "$LUCI" = 1 ]; then
 	$PM_INSTALL seedex-box luci-app-seedex
