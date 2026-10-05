@@ -156,10 +156,10 @@ return baseclass.extend({
 							var task;
 
 							if (content.value !== file.content) {
+								// A replacing import keeps the entry with its settings and
+								// stages the file until apply.
 								var base = (s.config || '').split('/').pop();
-								task = api.run(svc, 'remove', [ name ]).then(function() {
-									return api.importConfig(base, content.value);
-								}).then(function(out) {
+								task = api.importConfig(base, content.value, true).then(function(out) {
 									api.notify(out);
 									if (settings.length)
 										return api.run(svc, 'update', [ name ].concat(settings));

@@ -19,7 +19,7 @@ var callRun = rpc.declare({
 var callImport = rpc.declare({
 	object: 'luci.seedex',
 	method: 'import',
-	params: [ 'name', 'content' ],
+	params: [ 'name', 'content', 'force' ],
 	reject: true
 });
 
@@ -92,8 +92,8 @@ return baseclass.extend({
 		return callRun(svc || '', action, args || [], stdin || '').then(unwrap);
 	},
 
-	importConfig: function(name, content) {
-		return callImport(name, content).then(unwrap);
+	importConfig: function(name, content, force) {
+		return callImport(name, content, !!force).then(unwrap);
 	},
 
 	config: function(svc) {

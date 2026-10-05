@@ -130,7 +130,11 @@ do_import() {
 		rm -rf "$dir"
 		_error "content required"
 	}
-	_run import "$dir/$name"
+	if [ "$(_field force)" = true ]; then
+		_run import --force "$dir/$name"
+	else
+		_run import "$dir/$name"
+	fi
 	rm -rf "$dir"
 }
 
@@ -242,7 +246,7 @@ list)
   "status": {},
   "config": { "svc": "str" },
   "run": { "svc": "str", "action": "str", "args": [ "str" ], "stdin": "str" },
-  "import": { "name": "str", "content": "str" },
+  "import": { "name": "str", "content": "str", "force": "bool" },
   "file": { "svc": "str", "path": "str" },
   "logs": { "svc": "str" },
   "link": {},
