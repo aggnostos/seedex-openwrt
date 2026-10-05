@@ -247,6 +247,7 @@ _disable_stock_proxy() {
 
 	log_warn "the stock https-dns-proxy had rewritten the dnsmasq upstream, restoring it"
 	backup_servers=$(uci -q get "dhcp.${sec}.doh_backup_server")
+	_seedex_uci_stash dhcp
 	uci -q delete "dhcp.${sec}.server"
 	for s in $backup_servers; do
 		uci add_list "dhcp.${sec}.server=$s"
@@ -260,6 +261,9 @@ _disable_stock_proxy() {
 	uci -q delete "dhcp.${sec}.doh_backup_server"
 	uci -q delete "dhcp.${sec}.doh_server"
 	uci commit dhcp
+	_seedex_uci_unstash dhcp
+	# dnsmasq takes the restored servers only from a restart.
+	/etc/init.d/dnsmasq restart 2>/dev/null
 }
 
 service_triggers() {
