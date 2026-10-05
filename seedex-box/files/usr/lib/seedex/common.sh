@@ -976,14 +976,22 @@ seedex_dns_upstream_nft() {
 seedex_probe_uplink() {
 	local url="${1:-$SEEDEX_PROBE_URL}"
 	local timeout="${2:-5}"
-	local out code secs host port ip
+	local out code secs host port="" ip set=uplink_probe
 	host=$(printf '%s\n' "$url" | sed 's|^[A-Za-z]*://||;s|[/?#].*||')
 	case "$host" in
+	\[*\]*)
+		port="${host##*]}"
+		port="${port#:}"
+		host="${host#[}"
+		host="${host%%]*}"
+		;;
 	*:*) port="${host##*:}" host="${host%%:*}" ;;
-	*) case "$url" in https:*) port=443 ;; *) port=80 ;; esac ;;
 	esac
+	[ -n "$port" ] || case "$url" in https:*) port=443 ;; *) port=80 ;; esac
 	if printf '%s\n' "$host" | grep -qE "$SEEDEX_IPV4_RE"; then
 		ip="$host"
+	elif printf '%s\n' "$host" | grep -qE "$SEEDEX_IPV6_RE"; then
+		ip="$host" set=uplink_probe6
 	else
 		ip=$(seedex_resolve "$host" | head -1)
 	fi
@@ -991,8 +999,11 @@ seedex_probe_uplink() {
 		echo 0
 		return 1
 	}
-	nft add element inet "$SEEDEX_ROUTER_NFT_TABLE" uplink_probe "{ $ip }" 2>/dev/null
-	out=$(curl -s -o /dev/null --max-time "$timeout" --resolve "$host:$port:$ip" \
+	nft add element inet "$SEEDEX_ROUTER_NFT_TABLE" "$set" "{ $ip }" 2>/dev/null
+	# An address in the URL needs no resolving: curl gets it as written.
+	set --
+	[ "$ip" = "$host" ] || set -- --resolve "$host:$port:$ip"
+	out=$(curl -s -o /dev/null --max-time "$timeout" "$@" \
 		-w '%{http_code} %{time_total}' "$url" 2>/dev/null)
 	[ -n "$out" ] || {
 		echo 0

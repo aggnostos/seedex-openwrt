@@ -636,6 +636,7 @@ table inet ${NFT_TABLE} {
   set block_ips6 { type ipv6_addr; flags interval; auto-merge; }
   set dns_bootstrap { type ipv4_addr; }
   set uplink_probe { type ipv4_addr; flags timeout; timeout 1h; }
+  set uplink_probe6 { type ipv6_addr; flags timeout; timeout 1h; }
   set dns_bootstrap6 { type ipv6_addr; }
   set dns_upstream { type ipv4_addr; }
   set dns_upstream6 { type ipv6_addr; }
@@ -685,6 +686,8 @@ $(_dns_rules "$no6")
     ip6 daddr @dns_bootstrap6 accept
     jump dns_out
     ip daddr @uplink_probe accept
+    ip6 daddr @uplink_probe6 ${no6}
+    ip6 daddr @uplink_probe6 accept
     ip daddr @block_ips drop
     ip6 daddr @block_ips6 drop
     ip daddr @endpoint_ips accept
@@ -1152,8 +1155,10 @@ reapply() {
 	collect_pins
 	_collect_buckets
 	_domains_stage
-	# A table an older build left lacks the sets for the rules' DNS.
-	if _pins_changed || ! nft list set inet "$NFT_TABLE" dns_direct >/dev/null 2>&1; then
+	# A table an older build left lacks the sets for the rules' DNS and the
+	# IPv6 uplink probe.
+	if _pins_changed || ! nft list set inet "$NFT_TABLE" dns_direct >/dev/null 2>&1 ||
+		! nft list set inet "$NFT_TABLE" uplink_probe6 >/dev/null 2>&1; then
 		log_info "pinned tunnels or the table layout changed, rebuilding the rule set"
 		seedex_pin_sync
 		setup_nftables || {
