@@ -134,6 +134,8 @@ return view.extend({
 		var listPath = api.input(s.list_path, '/etc/seedex/lists/custom.txt');
 		var listRefresh = api.input(s.list_refresh, '12h');
 		var iface = api.input(s.iface, 'nl1-awg-router');
+		var oldDns = L.toArray(s.dns).join(', ');
+		var dns = api.input(oldDns, 'default');
 
 		var save = function() {
 			var n = name.value.trim();
@@ -168,6 +170,9 @@ return view.extend({
 				else if (!isNew)
 					args.push(f[2]);
 			});
+			var servers = splitList(dns.value).filter(function(v) { return v !== 'default'; }).join(',');
+			if (isNew ? servers : servers !== splitList(oldDns).join(','))
+				args.push('dns=' + (servers || 'default'));
 			return api.run(SVC, isNew ? 'add' : 'update', args)
 				.then(ui.hideModal, api.fail).then(refresh);
 		};
@@ -183,6 +188,7 @@ return view.extend({
 			api.field(_('List URL'), listUrl, _('Downloaded when the router starts')),
 			api.field(_('List file'), listPath, _('A local file on the router')),
 			api.field(_('List refresh'), listRefresh, _('e.g. 12h or 1d')),
+			api.field(_('DNS'), dns, _('Servers for the rule\'s domains, e.g. 10.0.0.53; queries take the rule\'s path. default means the DNS service')),
 			api.modalActions(isNew ? _('Add') : _('Save'), save, self)
 		]);
 		return Promise.resolve();

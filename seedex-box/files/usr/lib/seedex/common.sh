@@ -882,6 +882,8 @@ seedex_fetch() {
 SEEDEX_DNS_RUNDIR="$SEEDEX_RUNDIR/dns"
 
 SEEDEX_ROUTER_DOMAINS_DIR="$SEEDEX_RUNDIR/router/domains"
+# Rules with their own DNS servers: <rule>.servers and <rule>.domains each.
+SEEDEX_ROUTER_DNS_DIR="$SEEDEX_RUNDIR/router/dns"
 SEEDEX_ROUTER_NFT_TABLE="seedex_router"
 SEEDEX_ROUTER_OVERLAY_DYN="overlay_dyn"
 SEEDEX_ROUTER_DIRECT_DYN="direct_dyn"

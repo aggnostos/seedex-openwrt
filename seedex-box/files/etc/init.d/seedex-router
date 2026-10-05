@@ -279,9 +279,10 @@ download_lists() {
 			return 0
 		}
 
-		local bucket
+		local bucket dns
 		bucket=$(_rule_bucket "$section")
-		if ! _bucket_active "$bucket"; then
+		config_get dns "$section" dns ''
+		if ! _bucket_active "$bucket" && [ -z "$dns" ]; then
 			log_debug "rule '$section': type '$bucket' is inactive with default_route=$DEFAULT_ROUTE, skipped"
 			return 0
 		fi
@@ -406,6 +407,39 @@ collect_rule_clients() {
 	done
 }
 
+# A rule's DNS servers take the rule's own path: the box's queries to them
+# leave as its traffic does, not through the overlay like the rest of DNS.
+_collect_rule_dns() {
+	local section="$1" enabled server
+
+	config_get_bool enabled "$section" enabled 0
+	[ "$enabled" -eq 1 ] || return 0
+	[ "$(_rule_bucket "$section")" = "$RULE_TYPE_FILTER" ] || return 0
+
+	COLLECTED=""
+	config_list_foreach "$section" dns _collect_item
+	for server in $COLLECTED; do
+		server="${server%%#*}"
+		case "$server" in
+		*:*) echo "$server" >>"$RULE_IPS_FILE.6" ;;
+		*) echo "$server" >>"$RULE_IPS_FILE" ;;
+		esac
+	done
+	COLLECTED=""
+}
+
+collect_rule_dns() {
+	local rule_type="$1"
+	mkdir -p "$IPS_DIR"
+	RULE_IPS_FILE="${IPS_DIR}/dns_${rule_type}.ips"
+	: >"$RULE_IPS_FILE"
+	: >"$RULE_IPS_FILE.6"
+	RULE_TYPE_FILTER="$rule_type"
+	config_foreach _collect_rule_dns rule
+	sort -u "$RULE_IPS_FILE.6" >"${RULE_IPS_FILE}6"
+	sort -u "$RULE_IPS_FILE" >"$RULE_IPS_FILE.6" && mv "$RULE_IPS_FILE.6" "$RULE_IPS_FILE"
+}
+
 _tunnels_nft() {
 	local ifaces
 	ifaces=$(seedex_active_ifaces | tr '\n' ',')
@@ -421,9 +455,12 @@ _collect_buckets() {
 	collect_rule_ips block
 	collect_rule_clients overlay
 	collect_rule_clients direct
+	collect_rule_dns overlay
+	collect_rule_dns direct
 	for t in $(_pins); do
 		collect_rule_ips "$t"
 		collect_rule_clients "$t"
+		collect_rule_dns "$t"
 	done
 }
 
@@ -436,6 +473,12 @@ _set_files() {
 		echo "${t}_cmac ${IPS_DIR}/client_${t}.mac"
 		echo "${t}_cip ${IPS_DIR}/client_${t}.ip"
 		echo "${t}_cip6 ${IPS_DIR}/client_${t}.ip6"
+		echo "${t}_dns ${IPS_DIR}/dns_${t}.ips"
+		echo "${t}_dns6 ${IPS_DIR}/dns_${t}.ips6"
+	done
+	for t in direct overlay; do
+		echo "dns_${t} ${IPS_DIR}/dns_${t}.ips"
+		echo "dns_${t}6 ${IPS_DIR}/dns_${t}.ips6"
 	done
 	echo "endpoint_ips ${IPS_DIR}/endpoints.ips"
 	echo "endpoint_ips6 ${IPS_DIR}/endpoints.ips6"
@@ -478,6 +521,8 @@ _pin_sets() {
   set ${t}_cmac { type ether_addr; }
   set ${t}_cip { type ipv4_addr; flags interval; auto-merge; }
   set ${t}_cip6 { type ipv6_addr; flags interval; auto-merge; }
+  set ${t}_dns { type ipv4_addr; }
+  set ${t}_dns6 { type ipv6_addr; }
 EOS
 	done
 }
@@ -500,6 +545,29 @@ EOS
     ip6 daddr @${t}_dyn6 meta mark set ${mark} accept
 EOS
 	done
+}
+
+# Ahead of the private ranges: a DNS server inside a tunnel often sits in
+# one. A direct server takes the provider, as a direct rule does.
+_dns_rules() {
+	local no6="$1" n mark
+	cat <<EOS
+    ip daddr @dns_direct accept
+    ip6 daddr @dns_direct6 ${no6}
+    ip6 daddr @dns_direct6 accept
+EOS
+	# shellcheck disable=SC2013
+	for n in $(awk '{ print $1 }' "$PINS_FILE" 2>/dev/null); do
+		mark=$(seedex_pin_mark "$n")
+		cat <<EOS
+    ip daddr @pin${n}_dns meta mark set ${mark} accept
+    ip6 daddr @pin${n}_dns6 meta mark set ${mark} accept
+EOS
+	done
+	cat <<EOS
+    ip daddr @dns_overlay meta mark set ${FWMARK} accept
+    ip6 daddr @dns_overlay6 meta mark set ${FWMARK} accept
+EOS
 }
 
 # The replacement table goes in as one nft transaction: traffic meets
@@ -567,6 +635,10 @@ table inet ${NFT_TABLE} {
   set dns_bootstrap6 { type ipv6_addr; }
   set dns_upstream { type ipv4_addr; }
   set dns_upstream6 { type ipv6_addr; }
+  set dns_direct { type ipv4_addr; }
+  set dns_direct6 { type ipv6_addr; }
+  set dns_overlay { type ipv4_addr; }
+  set dns_overlay6 { type ipv6_addr; }
   set tunnels { type ifname; }
   set client_direct_mac { type ether_addr; }
   set client_overlay_mac { type ether_addr; }
@@ -601,6 +673,7 @@ $(_pin_rules prerouting)
   chain output {
     type route hook output priority mangle; policy accept;
     meta mark ${SEEDEX_WG_FWMARK} accept
+$(_dns_rules "$no6")
     ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } accept
     ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } accept
     ip daddr @dns_bootstrap accept
@@ -716,7 +789,7 @@ _rule_domains() {
 	tr 'A-Z' 'a-z' <"$raw" | grep -E "$DOMAIN_RE" >"${raw}.ok"
 	kept=$(wc -l <"${raw}.ok" | tr -d ' ')
 
-	[ "$total" -eq "$kept" ] ||
+	[ "$total" -eq "$kept" ] || [ -n "${DOMAINS_QUIET:-}" ] ||
 		log_warn "rule '$section': ignored $((total - kept)) of $total entries that are not domain names"
 
 	cat "${raw}.ok"
@@ -779,6 +852,9 @@ _domains_stage() {
 	local rule_type dest
 	mkdir -p "$SEEDEX_ROUTER_DOMAINS_DIR"
 	rm -f "$SEEDEX_ROUTER_DOMAINS_DIR"/*.new
+	rm -rf "$SEEDEX_ROUTER_DNS_DIR.new"
+	mkdir -p "$SEEDEX_ROUTER_DNS_DIR.new"
+	config_foreach _rule_dns_stage rule
 	for rule_type in overlay direct block $(_pins); do
 		dest="$SEEDEX_ROUTER_DOMAINS_DIR/$rule_type"
 		if _bucket_active "$rule_type"; then
@@ -788,6 +864,25 @@ _domains_stage() {
 			: >"$dest.new"
 		fi
 	done
+}
+
+# A rule's domains go to its servers whatever the default route: a direct
+# rule resolves through its own DNS even when everything else goes direct.
+_rule_dns_stage() {
+	local section="$1" enabled servers dest
+	config_get_bool enabled "$section" enabled 0
+	[ "$enabled" -eq 1 ] || return 0
+	config_get servers "$section" dns ''
+	[ -n "$servers" ] || return 0
+	dest="$SEEDEX_ROUTER_DNS_DIR.new/$section"
+	RULE_TYPE_FILTER=$(_rule_bucket "$section")
+	[ "$RULE_TYPE_FILTER" != block ] || return 0
+	DOMAINS_QUIET=1 _rule_domains "$section" | sort -u >"$dest.domains"
+	if [ -s "$dest.domains" ]; then
+		echo "$servers" | tr ' ' '\n' >"$dest.servers"
+	else
+		rm -f "$dest.domains"
+	fi
 }
 
 # dnsmasq keeps no record of the domain behind an address, so a bucket that
@@ -836,6 +931,10 @@ publish_domains() {
 		[ -f "$f" ] || continue
 		_pins | grep -qx "${f##*/}" || rm -f "$f"
 	done
+	if [ -d "$SEEDEX_ROUTER_DNS_DIR.new" ]; then
+		rm -rf "$SEEDEX_ROUTER_DNS_DIR"
+		mv "$SEEDEX_ROUTER_DNS_DIR.new" "$SEEDEX_ROUTER_DNS_DIR"
+	fi
 	/etc/init.d/seedex-dns reload 2>/dev/null
 	_dyn_forget
 	# shellcheck disable=SC2086
@@ -1049,8 +1148,9 @@ reapply() {
 	collect_pins
 	_collect_buckets
 	_domains_stage
-	if _pins_changed; then
-		log_info "pinned tunnels changed, rebuilding the rule set"
+	# A table an older build left lacks the sets for the rules' DNS.
+	if _pins_changed || ! nft list set inet "$NFT_TABLE" dns_direct >/dev/null 2>&1; then
+		log_info "pinned tunnels or the table layout changed, rebuilding the rule set"
 		seedex_pin_sync
 		setup_nftables || {
 			rm -f "$SEEDEX_ROUTER_DOMAINS_DIR"/*.new

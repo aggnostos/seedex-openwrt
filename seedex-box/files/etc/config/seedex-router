@@ -74,6 +74,23 @@ config router 'main'
 #       option enabled '1'
 #       list domain    'intranet.example.com'
 #
+# 'dns' sends the rule's domains, its lists included, to its own servers in
+# place of the DNS service: an address with an optional port after #, as in
+# '10.0.0.53' or '10.0.0.53#5353'. Queries to them take the rule's path:
+# through its tunnel when pinned, through the overlay for 'overlay', over the
+# WAN for 'direct', even while that type is the default route. No fallback:
+# while the servers stay silent, the rule's domains do not resolve. Block
+# rules and client rules take none. `sdx router update <rule> dns=default`
+# drops them.
+#
+#   config rule 'work'
+#       option name    'work'
+#       option type    'overlay'
+#       option iface   'office-wg'
+#       option enabled '1'
+#       list domain    'corp.example.com'
+#       list dns       '10.0.0.53'
+#
 # Client rules: all traffic from these devices, matched by MAC address or by
 # IP address / subnet (a guest VLAN, a client behind another router). They
 # take precedence over destination rules, so a device pinned to 'direct'

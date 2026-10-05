@@ -43,6 +43,48 @@ _check_iface() {
 	die "no vpn or proxy config named '$name' — see 'sdx vpn show' and 'sdx proxy show'"
 }
 
+# A DNS server of a rule: an IPv4 or IPv6 address, with a port after #.
+_check_dns() {
+	local addr="${1%%#*}" port=""
+	[ "$addr" = "$1" ] || {
+		port="${1#*#}"
+		case "$port" in
+		"" | *[!0-9]*) die "not a port: $1" ;;
+		esac
+	}
+	case "$addr" in
+	*/*) die "not a DNS server address: $1" ;;
+	esac
+	printf '%s\n' "$addr" | grep -qE "$SEEDEX_IPV4_RE|$SEEDEX_IPV6_RE" ||
+		die "not a DNS server address: $1"
+}
+
+# dns= sends a rule's domains to its own servers: a rule that matches
+# clients or blocks has none to send.
+_rule_dns_allowed() {
+	local path="$1"
+	[ -n "$(uci -q get "${path}.dns")" ] || return 0
+	[ "$(uci -q get "${path}.type")" != block ] || die "a block rule resolves nothing, dns= does not apply"
+	[ -n "$(uci -q get "${path}.domain")$(uci -q get "${path}.list_url")$(uci -q get "${path}.list_path")" ] ||
+		die "dns= serves the rule's domains: add domain= or a list first"
+}
+
+# dns=default drops the rule's servers: its domains go to the DNS service.
+_rule_dns_set() {
+	local path="$1" value="$2" v
+	[ -n "$value" ] || die "dns= takes server addresses or default"
+	if [ "$value" != default ]; then
+		for v in $(printf '%s' "$value" | tr ',' ' '); do
+			_check_dns "$v"
+		done
+	fi
+	uci -q delete "${path}.dns"
+	[ "$value" != default ] || return 0
+	for v in $(printf '%s' "$value" | tr ',' ' '); do
+		uci add_list "${path}.dns=${v}"
+	done
+}
+
 _rule_kind() {
 	local path="$1"
 	if [ -n "$(uci -q get "${path}.client_mac")$(uci -q get "${path}.client_ip")" ]; then
@@ -184,7 +226,7 @@ _router_entry() {
 		_reject_ctrl "$name"
 		shift
 
-		local type="" iface_name="" list_url="" list_path="" list_refresh=""
+		local type="" iface_name="" list_url="" list_path="" list_refresh="" dns=""
 		local add_domains="" add_ips="" add_macs="" add_clients="" v
 
 		for arg in "$@"; do
@@ -208,6 +250,7 @@ _router_entry() {
 			list_url=*) list_url="${arg#*=}" ;;
 			list_path=*) list_path="${arg#*=}" ;;
 			list_refresh=*) list_refresh="${arg#*=}" ;;
+			dns=*) dns="${arg#*=}" ;;
 			*)
 				die "unknown param: $arg"
 				;;
@@ -261,6 +304,10 @@ use 'sdx router update' to change it, or pick another name"
 		for m in $add_clients; do
 			uci add_list "seedex-router.${sid}.client_ip=${m}"
 		done
+		[ -z "$dns" ] || {
+			_rule_dns_set "seedex-router.${sid}" "$dns"
+			_rule_dns_allowed "seedex-router.${sid}"
+		}
 
 		log_debug "router: added rule '$name' (type=$type)"
 		echo "added rule '$name' (type=$type)"
@@ -342,6 +389,11 @@ use 'sdx router update' to change it, or pick another name"
 				echo "  list_refresh → ${arg#*=}"
 				changes=$((changes + 1))
 				;;
+			dns=*)
+				_rule_dns_set "$path" "${arg#*=}"
+				echo "  dns → ${arg#*=}"
+				changes=$((changes + 1))
+				;;
 			list-url=*)
 				_rule_kind_allows "$path" destinations
 				uci set "${path}.list_url=${arg#*=}"
@@ -386,6 +438,7 @@ use 'sdx router update' to change it, or pick another name"
 			esac
 		done
 
+		_rule_dns_allowed "$path"
 		if [ "$changes" -gt 0 ]; then
 			log_debug "router: updated rule #$idx ($changes change(s))"
 			echo "rule #$idx updated ($changes change(s))"
@@ -408,7 +461,7 @@ use 'sdx router update' to change it, or pick another name"
 }
 
 svc_export() {
-	local idx=0 name type enabled url lpath refresh domains ips macs clients iface
+	local idx=0 name type enabled url lpath refresh domains ips macs clients iface dns
 	{
 		while uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx]" >/dev/null 2>&1; do
 			name=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].name")
@@ -422,17 +475,19 @@ svc_export() {
 			macs=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].client_mac")
 			clients=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].client_ip")
 			iface=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].iface")
+			dns=$(uci -q get "${SVC_ID}.@${SVC_SECTION}[$idx].dns")
 			idx=$((idx + 1))
 
-			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
 				"$name" "$type" "$enabled" "$url" "$lpath" "$refresh" \
-				"$domains" "$ips" "$macs" "$clients" "$iface"
+				"$domains" "$ips" "$macs" "$clients" "$iface" "$dns"
 		done
 	} | jq -R -s '
 		def words: split(" ") | map(select(length > 0));
 		[ split("\n")[] | select(length > 0) | split("\t") as $f |
 		    { name: $f[0], type: $f[1], enabled: ($f[2] != "0") }
 		  + (if $f[10] != "" then { iface: $f[10] } else {} end)
+		  + (if ($f[11] // "") != "" then { dns: ($f[11] | words) } else {} end)
 		  + (if $f[3] != "" then { list_url: $f[3] } else {} end)
 		  + (if $f[4] != "" then { list_path: $f[4] } else {} end)
 		  + (if $f[5] != "" then { list_refresh: $f[5] } else {} end)
@@ -450,6 +505,10 @@ _import_check() {
 	[ -z "$bad" ] || die "a rule matches either clients or destinations, not both: ${bad% }"
 	bad=$(jq -r '.[]? | select(.type == "block" and ((.client_mac // []) + (.client_ip // []) | length) > 0) | .name' "$file" | tr '\n' ' ')
 	[ -z "$bad" ] || die "block rules match destinations, not clients: ${bad% }"
+	bad=$(jq -r '.[]? | select((.dns // []) | length > 0)
+		| select(.type == "block" or (((.domain // []) | length) == 0 and (.list_url // "") == "" and (.list_path // "") == ""))
+		| .name' "$file" | tr '\n' ' ')
+	[ -z "$bad" ] || die "dns= serves a rule's domains, these rules have none to serve: ${bad% }"
 	bad=$(jq -r '.[]? | .name' "$file" | while IFS= read -r name; do
 		printf '%s %s\n' "$(_uci_sanitize_id "$name")" "$name"
 	done | awk -v q="'" '{
@@ -462,6 +521,9 @@ _import_check() {
 	done
 	for v in $(jq -r '.[]? | .client_ip[]?' "$file"); do
 		_check_client_ip "$v"
+	done
+	for v in $(jq -r '.[]? | .dns[]?' "$file"); do
+		_check_dns "$v"
 	done
 	while IFS= read -r name; do
 		[ -n "$name" ] || continue
@@ -476,7 +538,7 @@ EOF
 
 svc_import_file() {
 	local file="$1" tab sep records pinned
-	local name type enabled url lpath refresh domains ips macs clients iface sid d verb
+	local name type enabled url lpath refresh domains ips macs clients iface dns sid d verb
 	tab=$(printf '\t')
 	sep=$(printf '\037')
 
@@ -490,7 +552,8 @@ svc_import_file() {
 		  ((.ip // []) | map(tostring) | join(" ")),
 		  ((.client_mac // []) | map(tostring) | join(" ")),
 		  ((.client_ip // []) | map(tostring) | join(" ")),
-		  f(.iface) ] | @tsv
+		  f(.iface),
+		  ((.dns // []) | map(tostring) | join(" ")) ] | @tsv
 	' "$file" 2>/dev/null) || die "cannot parse '$file' — not a valid rules export"
 	pinned=$(jq -r '.[]? | select((.iface // "") != "" and .type != "overlay") | .name' "$file" | tr '\n' ' ')
 	[ -z "$pinned" ] || die "iface= pins a rule to a tunnel, so its type is overlay: ${pinned% }"
@@ -501,7 +564,7 @@ svc_import_file() {
 	local taken="" taken_file
 	taken_file=$(mktemp)
 	printf '%s\n' "$records" | tr "$tab" "$sep" |
-		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs clients iface; do
+		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs clients iface dns; do
 			[ -n "$name" ] || continue
 			_find_section_by_name "$SVC_ID" "$SVC_SECTION" "$name" >/dev/null || continue
 			printf '%s\n' "$name"
@@ -514,7 +577,7 @@ replace them with 'sdx import --force', or remove them with 'sdx router remove'"
 	fi
 
 	printf '%s\n' "$records" | tr "$tab" "$sep" |
-		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs clients iface; do
+		while IFS="$sep" read -r name type enabled url lpath refresh domains ips macs clients iface dns; do
 			[ -n "$name" ] || continue
 			sid=$(_uci_sanitize_id "$name")
 			verb="added"
@@ -527,7 +590,7 @@ replace them with 'sdx import --force', or remove them with 'sdx router remove'"
 			uci set "${SVC_ID}.${sid}.type=${type}"
 			uci set "${SVC_ID}.${sid}.enabled=${enabled}"
 
-			for d in list_url list_path list_refresh domain ip client_mac client_ip iface; do
+			for d in list_url list_path list_refresh domain ip client_mac client_ip iface dns; do
 				uci -q delete "${SVC_ID}.${sid}.${d}"
 			done
 			_uci_set_if "${SVC_ID}.${sid}" iface "$iface"
@@ -546,6 +609,9 @@ replace them with 'sdx import --force', or remove them with 'sdx router remove'"
 			done
 			for d in $clients; do
 				uci add_list "${SVC_ID}.${sid}.client_ip=${d}"
+			done
+			for d in $dns; do
+				uci add_list "${SVC_ID}.${sid}.dns=${d}"
 			done
 
 			echo "$verb rule '$name' (type=$type)"
@@ -610,8 +676,8 @@ start	Start the service
 stop	Stop the service
 restart	Restart the service
 show [#|name ...]	List entries, or show some	List rules, or show the named ones with all their fields
-add <name> k=v ...	Add a rule	Add a rule: type=direct|overlay|block, then domain=a,b ip= list_url= list_path= or client_mac= client_ip=; iface=<config> sends it through that tunnel
-update <#|name> k=v ...	Modify an entry	Modify a rule: type= name= iface= list_*=; lists: domain=a,b replaces, add-domain= adds, del-domain= removes (same for ip, client_mac, client_ip)
+add <name> k=v ...	Add a rule	Add a rule: type=direct|overlay|block, then domain=a,b ip= list_url= list_path= or client_mac= client_ip=; iface=<config> sends it through that tunnel; dns=a,b resolves its domains there
+update <#|name> k=v ...	Modify an entry	Modify a rule: type= name= iface= dns=a,b|default list_*=; lists: domain=a,b replaces, add-domain= adds, del-domain= removes (same for ip, client_mac, client_ip)
 enable [#|name ...]	Enable the service or entries	Enable the service, or the named rules
 disable [#|name ...]	Disable the service or entries	Disable the service (also at boot), or the named rules
 remove <#|name ...>	Remove entries	Remove rules

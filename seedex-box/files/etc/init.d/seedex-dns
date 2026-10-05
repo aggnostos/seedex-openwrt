@@ -97,6 +97,32 @@ _pack_local() {
 	'
 }
 
+_pack_server() {
+	awk -v server="$1" -v max="$2" '
+		function flush_line() {
+			if (n > 0) { print "server=" buf "/" server; buf = ""; n = 0 }
+		}
+		NF {
+			if (n > 0 && length("server=") + length(buf) + length($0) + length(server) + 2 > max) flush_line()
+			buf = buf "/" $0
+			n++
+		}
+		END { flush_line() }
+	'
+}
+
+# Each rule with its own DNS servers sends its domains to them alone.
+_rule_servers() {
+	local max="$1" f server
+	for f in "$SEEDEX_ROUTER_DNS_DIR"/*.servers; do
+		[ -f "$f" ] || continue
+		while read -r server; do
+			[ -n "$server" ] || continue
+			_pack_server "$server" "$max" <"${f%.servers}.domains"
+		done <"$f"
+	done
+}
+
 _domains() {
 	local f="$SEEDEX_ROUTER_DOMAINS_DIR/$1"
 	[ -f "$f" ] && cat "$f"
@@ -126,6 +152,7 @@ _render_dnsmasq_conf() {
 	_domains overlay | _pack_nftset "$SEEDEX_ROUTER_OVERLAY_DYN" "$max"
 	_domains direct | _pack_nftset "$SEEDEX_ROUTER_DIRECT_DYN" "$max"
 	_domains block | _pack_local "$max"
+	_rule_servers "$max"
 }
 
 _dnsmasq_conf_ok() {
