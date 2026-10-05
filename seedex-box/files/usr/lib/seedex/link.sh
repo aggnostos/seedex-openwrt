@@ -364,7 +364,7 @@ _link_merged_settle() {
 }
 
 _link_sync_one() {
-	local name="$1" tmp payload changed=0 svc kind ext f keep rc err selected missing=0 seen c
+	local name="$1" tmp payload touched="" svc kind ext f keep rc err selected missing=0 seen c
 	tmp=$(mktemp -d)
 	payload="$tmp/configs.json"
 	if ! err=$(_link_fetch "$name" "$payload"); then
@@ -375,6 +375,8 @@ _link_sync_one() {
 	fi
 	_link_unpack "$payload" "$tmp"
 	_link_merge_proxy "$name" "$tmp/proxy"
+	# A merge moves the rules pinned to the old configs over.
+	[ -z "$LINK_MERGED" ] || touched="router"
 	selected=$(_link_selected "$name")
 
 	seen=""
@@ -397,10 +399,10 @@ _link_sync_one() {
 				[ "$(_owner_of "$svc" "$c")" != "$name" ] || keep="$keep $c"
 				continue
 			fi
-			[ "$rc" = 0 ] && changed=1
+			[ "$rc" != 0 ] || touched="$touched $svc"
 			keep="$keep $c"
 		done
-		_link_sweep "$svc" "$name" "$keep" && changed=1
+		! _link_sweep "$svc" "$name" "$keep" || touched="$touched $svc"
 	done
 	_link_merged_settle
 	rm -rf "$tmp"
@@ -412,11 +414,16 @@ _link_sync_one() {
 		esac
 	done
 
-	if [ "$changed" = 1 ] && [ "${LINK_NO_APPLY:-0}" = 1 ]; then
+	if [ -n "$touched" ] && [ "${LINK_NO_APPLY:-0}" = 1 ]; then
 		echo "$name: synced; the changes are pending until 'sdx apply'"
-	elif [ "$changed" = 1 ]; then
+	elif [ -n "$touched" ]; then
+		# Only the services the sync changed: pending edits of the others
+		# wait for the user's own apply.
 		for svc in vpn proxy router; do
-			[ -n "$(uci changes "seedex-$svc" 2>/dev/null)" ] || seedex_config_stale "$svc" || continue
+			case " $touched " in
+			*" $svc "*) ;;
+			*) continue ;;
+			esac
 			# Repinned rules must not start a router nobody started.
 			if [ "$svc" = router ] && ! seedex_service_registered router; then
 				uci commit seedex-router
@@ -500,21 +507,15 @@ remove it first with: sdx link remove $name"
 }
 
 link_remove() {
-	local name="$1" svc changed=0
+	local name="$1" svc
 	[ -n "$name" ] || usage "sdx link remove <name>"
 	_link_section "$name"
 	for svc in vpn proxy; do
-		_link_sweep "$svc" "$name" "" && changed=1
+		! _link_sweep "$svc" "$name" "" || _svc "$svc" apply >/dev/null
 	done
 	uci delete "seedex-link.$name"
 	uci commit seedex-link
 	rm -f "$LINK_RUNDIR/$name"
-	if [ "$changed" = 1 ]; then
-		for svc in vpn proxy; do
-			[ -n "$(uci changes "seedex-$svc" 2>/dev/null)" ] || seedex_config_stale "$svc" || continue
-			_svc "$svc" apply >/dev/null
-		done
-	fi
 	echo "removed link '$name'"
 }
 
