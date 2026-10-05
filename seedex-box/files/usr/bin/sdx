@@ -356,6 +356,16 @@ _config_ref() {
 	SID=$(uci -q show "$CONFIG" | awk -F'[.=]' -v n="'$1'" '$3 == "name" && substr($0, index($0, "=") + 1) == n { print $2; exit }')
 }
 
+# priority and reserve write the saved config at once: a config imported
+# but not applied yet has no section there to take them.
+_config_saved() {
+	local saved
+	_seedex_uci_stash "$CONFIG"
+	saved=$(uci -q get "$CONFIG.$SID.name")
+	_seedex_uci_unstash "$CONFIG"
+	[ -n "$saved" ] || die "config '$1' is pending — save it with 'sdx apply' first"
+}
+
 _config_commit() {
 	_seedex_uci_stash "$CONFIG"
 	if [ -z "$2" ]; then
@@ -384,6 +394,7 @@ cmd_priority() {
 	case "${value#-}" in
 	"" | *[!0-9]*) die "priority must be a whole number, got: $value" ;;
 	esac
+	_config_saved "$name"
 	_config_commit priority "$value"
 	seedex_watchdog_wake
 	echo "$name: priority $value — the watchdog uses it at its next check"
@@ -395,6 +406,7 @@ cmd_reserve() {
 	[ $# -gt 0 ] || usage "sdx reserve|unreserve <config> ..."
 	for name in "$@"; do
 		_config_ref "$name"
+		_config_saved "$name"
 	done
 	for name in "$@"; do
 		_config_ref "$name"
