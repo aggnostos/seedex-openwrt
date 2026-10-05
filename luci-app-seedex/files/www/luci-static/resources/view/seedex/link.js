@@ -142,12 +142,15 @@ return view.extend({
 				lists,
 				api.modalActions(_('Save'), function() {
 					var args = [ 'select', link.name ];
+					var picked = boxes.filter(function(b) { return b.checked; }).map(function(b) {
+						return b.value;
+					});
 					if (all.checked)
 						args.push('--all');
+					else if (picked.length)
+						args = args.concat(picked);
 					else
-						boxes.filter(function(b) { return b.checked; }).forEach(function(b) {
-							args.push(b.value);
-						});
+						args.push('--none');
 					return api.run('', 'link', args).then(function(out) {
 						ui.hideModal();
 						api.notify(out);

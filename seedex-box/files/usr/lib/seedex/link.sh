@@ -268,7 +268,7 @@ _link_pick_restore() {
 }
 
 _link_pick_or_die() {
-	[ -t 0 ] && [ -t 1 ] || die "no terminal — pass the configs by name: sdx link select $1 <config> ... | --all"
+	[ -t 0 ] && [ -t 1 ] || die "no terminal — pass the configs by name: sdx link select $1 <config> ... | --all | --none"
 	command -v stty >/dev/null 2>&1 || die "stty not found — install the coreutils-stty package"
 }
 
@@ -567,9 +567,12 @@ _owner_of() {
 
 link_select() {
 	local name="$1" c offered picked
-	[ -n "$name" ] || usage "sdx link select <name> [<config> ... | --all]"
+	[ -n "$name" ] || usage "sdx link select <name> [<config> ... | --all | --none]"
 	shift
 	_link_section "$name"
+	case "${1:-}" in
+	--all | --none) [ $# -eq 1 ] || usage "sdx link select <name> [<config> ... | --all | --none]" ;;
+	esac
 	if [ $# -eq 0 ]; then
 		_link_pick_or_die "$name"
 		offered=$(_link_offer "$name") || exit $?
@@ -584,15 +587,20 @@ link_select() {
 		# shellcheck disable=SC2086
 		set -- $picked
 	fi
+	# Without a terminal, an empty selection needs a word of its own.
+	[ "${1:-}" != "--none" ] || set --
+	for c in "$@"; do
+		case "$c" in
+		--all) ;;
+		"" | *[!A-Za-z0-9._-]*) die "invalid config name '$c'" ;;
+		esac
+	done
 	uci -q delete "seedex-link.$name.config"
 	if [ "${1:-}" = "--all" ]; then
 		uci add_list "seedex-link.$name.config=*"
 		echo "$name: importing every config"
 	else
 		for c in "$@"; do
-			case "$c" in
-			"" | *[!A-Za-z0-9._-]*) die "invalid config name '$c'" ;;
-			esac
 			uci add_list "seedex-link.$name.config=$c"
 		done
 		if [ $# -eq 0 ]; then
@@ -688,7 +696,8 @@ cmd_link() {
 			"add <name> <url> <token> <fingerprint>   Pair with a server (the command 'sdx link add' prints)" \
 			"remove <name>                            Unpair and drop the configs it delivered" \
 			"show <name>                              List the configs the server offers" \
-			"select <name> [<config> ... | --all]     Choose which of them to import (a menu without names)" \
+			"select <name> [<config> ... | --all | --none]" \
+			"                                         Choose which of them to import (a menu without names)" \
 			"sync [<name>]                            Pull configs now (cron does it every 30 minutes)" \
 			"<name> [<command> ...]                   Run the server's sdx: status, vpn add, proxy add ..."
 		;;
