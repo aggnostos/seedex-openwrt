@@ -24,6 +24,8 @@ NFT_DIRECT_DYN6="${SEEDEX_ROUTER_DIRECT_DYN}6"
 
 ROUTER_RUNDIR="$SEEDEX_RUNDIR/router"
 LISTS_DIR="$ROUTER_RUNDIR/lists"
+# The watchdog's list_refresh counts from the time stamped here.
+REFRESH_DIR="$ROUTER_RUNDIR/refresh"
 IPS_DIR="$ROUTER_RUNDIR/ips"
 
 STATE_FILE="$SEEDEX_ROUTER_STATE"
@@ -294,6 +296,8 @@ download_lists() {
 		if seedex_fetch "$list_url" "$tmp"; then
 			mv "$tmp" "$dest"
 			printf '%s\n' "$list_url" >"$dest.url"
+			mkdir -p "$REFRESH_DIR"
+			date +%s >"$REFRESH_DIR/$section.ts"
 			local count
 			count=$(wc -l <"$dest")
 			log_debug "downloaded $count entries from '$list_url'"
