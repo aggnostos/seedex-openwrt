@@ -154,30 +154,54 @@ return view.extend({
 					args.push('name=' + n);
 				if (pin !== (s.iface || ''))
 					args.push('iface=' + pin);
-				args.push('type=' + type.value);
+				if (type.value !== (s.type || 'overlay'))
+					args.push('type=' + type.value);
 			}
+			// Only what the user changed: 'domain=a,b' replaces the list, so an
+			// unchanged one would still show up as pending.
 			// What a save clears goes first: a rule turning from destinations
 			// to clients must lose its domains and lists before it takes a MAC.
 			var lists = [ [ macs, 'client_mac' ], [ clientIps, 'client_ip' ], [ domains, 'domain' ], [ ips, 'ip' ] ]
-				.map(function(f) { return [ f[1], splitList(f[0].value) ]; });
-			lists.filter(function(l) { return !l[1].length && !isNew; }).forEach(function(l) {
+				.map(function(f) {
+					var list = splitList(f[0].value), old = L.toArray(s[f[1]]);
+					if (f[1] === 'client_mac') {
+						list = list.map(function(v) { return v.toLowerCase(); });
+						old = old.map(function(v) { return v.toLowerCase(); });
+					}
+					return [ f[1], list, list.join(',') !== old.join(','), old ];
+				}).filter(function(l) { return l[2]; });
+			lists.filter(function(l) { return !l[1].length; }).forEach(function(l) {
 				args.push(l[0] + '=');
 			});
 			[ [ listUrl, 'list_url', 'del-url' ],
 			  [ listPath, 'list_path', 'del-path' ],
 			  [ listRefresh, 'list_refresh', 'del-refresh' ] ].forEach(function(f) {
 				var v = f[0].value.trim();
-				if (v)
-					args.push(f[1] + '=' + v);
-				else if (!isNew)
-					args.push(f[2]);
+				if (v === (s[f[1]] || ''))
+					return;
+				args.push(v ? f[1] + '=' + v : f[2]);
 			});
+			// A list that keeps entries changes by them alone: add-domain=,
+			// del-domain=, so that the pending changes show just those.
 			lists.filter(function(l) { return l[1].length; }).forEach(function(l) {
-				args.push(l[0] + '=' + l[1].join(','));
+				var gone = l[3].filter(function(v) { return l[1].indexOf(v) < 0; });
+				var added = l[1].filter(function(v) { return l[3].indexOf(v) < 0; });
+				if (!l[3].length || gone.length + added.length >= l[1].length) {
+					args.push(l[0] + '=' + l[1].join(','));
+					return;
+				}
+				if (gone.length)
+					args.push('del-' + l[0] + '=' + gone.join(','));
+				if (added.length)
+					args.push('add-' + l[0] + '=' + added.join(','));
 			});
 			var servers = splitList(dns.value).filter(function(v) { return v !== 'default'; }).join(',');
 			if (isNew ? servers : servers !== splitList(oldDns).join(','))
 				args.push('dns=' + (servers || 'default'));
+			if (!isNew && args.length === 1) {
+				ui.hideModal();
+				return Promise.resolve();
+			}
 			return api.run(SVC, isNew ? 'add' : 'update', args)
 				.then(ui.hideModal, api.fail).then(refresh);
 		};
