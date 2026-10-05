@@ -156,10 +156,12 @@ return view.extend({
 					args.push('iface=' + pin);
 				args.push('type=' + type.value);
 			}
-			[ [ macs, 'client_mac' ], [ clientIps, 'client_ip' ], [ domains, 'domain' ], [ ips, 'ip' ] ].forEach(function(f) {
-				var list = splitList(f[0].value);
-				if (list.length || !isNew)
-					args.push(f[1] + '=' + list.join(','));
+			// What a save clears goes first: a rule turning from destinations
+			// to clients must lose its domains and lists before it takes a MAC.
+			var lists = [ [ macs, 'client_mac' ], [ clientIps, 'client_ip' ], [ domains, 'domain' ], [ ips, 'ip' ] ]
+				.map(function(f) { return [ f[1], splitList(f[0].value) ]; });
+			lists.filter(function(l) { return !l[1].length && !isNew; }).forEach(function(l) {
+				args.push(l[0] + '=');
 			});
 			[ [ listUrl, 'list_url', 'del-url' ],
 			  [ listPath, 'list_path', 'del-path' ],
@@ -169,6 +171,9 @@ return view.extend({
 					args.push(f[1] + '=' + v);
 				else if (!isNew)
 					args.push(f[2]);
+			});
+			lists.filter(function(l) { return l[1].length; }).forEach(function(l) {
+				args.push(l[0] + '=' + l[1].join(','));
 			});
 			var servers = splitList(dns.value).filter(function(v) { return v !== 'default'; }).join(',');
 			if (isNew ? servers : servers !== splitList(oldDns).join(','))
