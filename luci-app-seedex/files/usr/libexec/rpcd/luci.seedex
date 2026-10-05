@@ -1,6 +1,7 @@
 #!/bin/sh
 
 . /usr/lib/seedex/common.sh
+seedex_uci_pending
 
 SERVICES="router vpn proxy dns"
 
@@ -83,7 +84,35 @@ do_config() {
 	vpn | proxy | router | dns) ;;
 	*) _error "unknown service: $svc" ;;
 	esac
-	ubus call uci get "{\"config\":\"seedex-$svc\"}" 2>/dev/null || echo '{"values":{}}'
+	# The shape of 'ubus call uci get', which cannot see the changes sdx
+	# keeps pending: the saved config with them on top.
+	uci -n export "seedex-$svc" 2>/dev/null | awk -v q="'" '
+		function unq(v) {
+			sub("^" q, "", v)
+			sub(q "$", "", v)
+			gsub(q "\\\\" q q, q, v)
+			return v
+		}
+		$1 == "config" {
+			# -n names an unnamed section cfg<hash>, as uci itself does.
+			sec = unq($3)
+			printf "s\037%s\037%s\037%d\n", sec, $2, (sec ~ /^cfg[0-9a-f]+$/)
+			n++
+			next
+		}
+		$1 == "option" || $1 == "list" {
+			v = $0
+			sub(/^[ \t]*[a-z]+[ \t]+[^ \t]+[ \t]+/, "", v)
+			printf "%s\037%s\037%s\037%s\n", substr($1, 1, 1), sec, $2, unq(v)
+		}' | jq -R -s '
+		split("\n") | map(select(length > 0) | split("\u001f"))
+		| reduce .[] as $r ({ values: {}, i: 0 };
+			if $r[0] == "s" then
+				.values[$r[1]] = { ".anonymous": ($r[3] == "1"), ".type": $r[2], ".name": $r[1], ".index": .i }
+				| .i += 1
+			elif $r[0] == "o" then .values[$r[1]][$r[2]] = $r[3]
+			else .values[$r[1]][$r[2]] += [ $r[3] ] end)
+		| { values }'
 }
 
 do_run() {

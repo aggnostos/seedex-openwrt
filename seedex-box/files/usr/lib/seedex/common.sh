@@ -68,8 +68,9 @@ seedex_start_router() {
 	/etc/init.d/seedex-router start
 }
 
+# What the service runs with: the saved config, never the pending changes.
 _seedex_config_digest() {
-	uci -q show "seedex-$1" 2>/dev/null | grep -v '\.\(priority\|reserved\)=' | md5sum
+	command uci -q show "seedex-$1" 2>/dev/null | grep -v '\.\(priority\|reserved\)=' | md5sum
 }
 
 seedex_config_stamp() {
@@ -212,13 +213,14 @@ seedex_config_validate() {
 
 SEEDEX_RUNDIR="/var/run/seedex"
 
+# A file an entry still pending refers to stays too: apply needs it.
 seedex_prune_configs() {
-	local config="$1" type="$2" dir="$3" f idx path keep=""
+	local config="$1" type="$2" dir="$3" f idx path keep="" p="$SEEDEX_UCI_PENDING"
 	idx=0
-	while uci -q get "${config}.@${type}[$idx]" >/dev/null 2>&1; do
-		path=$(uci -q get "${config}.@${type}[$idx].config")
+	while command uci -t "$p" -q get "${config}.@${type}[$idx]" >/dev/null 2>&1; do
+		path=$(command uci -t "$p" -q get "${config}.@${type}[$idx].config")
 		keep="$keep ${path##*/}"
-		path=$(uci -q get "${config}.@${type}[$idx].staged")
+		path=$(command uci -t "$p" -q get "${config}.@${type}[$idx].staged")
 		[ -z "$path" ] || keep="$keep ${path##*/}"
 		idx=$((idx + 1))
 	done
@@ -348,15 +350,32 @@ _seedex_find_wan_zone() {
 }
 
 SEEDEX_UCI_DELTA_DIR=/tmp/.uci
+# Changes sdx stages until 'sdx apply'. uci reads /tmp/.uci for everyone,
+# config_load in the init scripts included, so changes kept there would
+# reach a service at its next restart. Kept here, only sdx sees them.
+SEEDEX_UCI_PENDING=/tmp/.uci-seedex
 
+# sdx and LuCI read and write through the pending directory. Changes an
+# older build left in /tmp/.uci move there, so that apply commits them once.
+seedex_uci_pending() {
+	local f
+	mkdir -p "$SEEDEX_UCI_PENDING"
+	for f in "$SEEDEX_UCI_DELTA_DIR"/seedex-*; do
+		[ -s "$f" ] && [ ! -s "$SEEDEX_UCI_PENDING/${f##*/}" ] || continue
+		mv "$f" "$SEEDEX_UCI_PENDING/"
+	done
+	uci() { command uci -t "$SEEDEX_UCI_PENDING" "$@"; }
+}
+
+# Moves pending changes aside, so that a commit writes only its own.
 _seedex_uci_stash() {
 	case " ${SEEDEX_UCI_STASHED:-} " in
 	*" $1 "*) return 0 ;;
 	esac
 	SEEDEX_UCI_STASHED="${SEEDEX_UCI_STASHED:-} $1"
-	[ -s "$SEEDEX_UCI_DELTA_DIR/$1" ] || return 0
 	mkdir -p "$SEEDEX_RUNDIR"
-	mv "$SEEDEX_UCI_DELTA_DIR/$1" "$SEEDEX_RUNDIR/$1.delta"
+	[ ! -s "$SEEDEX_UCI_DELTA_DIR/$1" ] || mv "$SEEDEX_UCI_DELTA_DIR/$1" "$SEEDEX_RUNDIR/$1.delta"
+	[ ! -s "$SEEDEX_UCI_PENDING/$1" ] || mv "$SEEDEX_UCI_PENDING/$1" "$SEEDEX_RUNDIR/$1.pending"
 }
 
 _seedex_uci_unstash() {
@@ -365,9 +384,14 @@ _seedex_uci_unstash() {
 		[ "$c" = "$1" ] || rest="$rest $c"
 	done
 	SEEDEX_UCI_STASHED="$rest"
-	[ -f "$SEEDEX_RUNDIR/$1.delta" ] || return 0
-	mkdir -p "$SEEDEX_UCI_DELTA_DIR"
-	mv "$SEEDEX_RUNDIR/$1.delta" "$SEEDEX_UCI_DELTA_DIR/$1"
+	if [ -f "$SEEDEX_RUNDIR/$1.delta" ]; then
+		mkdir -p "$SEEDEX_UCI_DELTA_DIR"
+		mv "$SEEDEX_RUNDIR/$1.delta" "$SEEDEX_UCI_DELTA_DIR/$1"
+	fi
+	if [ -f "$SEEDEX_RUNDIR/$1.pending" ]; then
+		mkdir -p "$SEEDEX_UCI_PENDING"
+		mv "$SEEDEX_RUNDIR/$1.pending" "$SEEDEX_UCI_PENDING/$1"
+	fi
 }
 
 _seedex_fw_add_device() {

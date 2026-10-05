@@ -2,6 +2,7 @@
 
 TAG="seedex"
 . /usr/lib/seedex/common.sh
+seedex_uci_pending
 
 SERVICES="seedex-router seedex-vpn seedex-proxy seedex-dns"
 SEEDEX_SERVICES="router vpn proxy dns"

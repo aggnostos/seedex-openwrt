@@ -89,7 +89,7 @@ _rule_dns_set() {
 # add or update would leave half of it pending. The pending changes are put
 # back as they were unless the command finishes.
 _delta_guard() {
-	DELTA_FILE="$SEEDEX_UCI_DELTA_DIR/$SVC_ID"
+	DELTA_FILE="$SEEDEX_UCI_PENDING/$SVC_ID"
 	DELTA_SAVED=$(mktemp)
 	cp "$DELTA_FILE" "$DELTA_SAVED" 2>/dev/null || : >"$DELTA_SAVED"
 	trap _delta_restore EXIT
