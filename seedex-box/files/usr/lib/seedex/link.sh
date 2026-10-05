@@ -392,7 +392,11 @@ _link_sync_one() {
 			_link_wanted "$selected" "$c" || continue
 			_link_place "$svc" "$name" "$f" "$kind"
 			rc=$?
-			[ "$rc" = 1 ] && continue
+			# A version the box rejects leaves the one it runs in place.
+			if [ "$rc" = 1 ]; then
+				[ "$(_owner_of "$svc" "$c")" != "$name" ] || keep="$keep $c"
+				continue
+			fi
 			[ "$rc" = 0 ] && changed=1
 			keep="$keep $c"
 		done
