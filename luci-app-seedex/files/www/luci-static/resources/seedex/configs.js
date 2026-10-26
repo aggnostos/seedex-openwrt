@@ -54,13 +54,25 @@ return baseclass.extend({
 				return s.name || s['.name'];
 			},
 
+			// What the Configs lines of sdx show: the RTT of an answering
+			// tunnel, a word for one that does not answer.
+			rtt: function(t) {
+				if (!t || t.state === 'disabled' || t.state === 'down')
+					return '—';
+				if (t.state !== 'up')
+					return _('unreachable');
+				var shown = t.rtt != null ? '%d ms'.format(t.rtt) : _('up');
+				return t.active ? E('strong', {}, shown) : shown;
+			},
+
 			renderConfigs: function(refresh) {
 				var self = this;
+				var tunnels = (self.status.tunnels || {})[svc] || {};
 				var rows = api.sections(self.values, 'config').map(function(s) {
 					var name = self.entryName(s);
 					var enabled = s.enabled == '1';
 					var reserved = s.reserved == '1';
-					var cells = [ api.mark(enabled), name ];
+					var cells = [ api.mark(enabled), name, self.rtt(tunnels[name]) ];
 					entrySettings.forEach(function(k) {
 						cells.push(s[k.key] || '—');
 					});
@@ -90,7 +102,7 @@ return baseclass.extend({
 					return cells;
 				});
 
-				var titles = [ '', _('Name') ].concat(entrySettings.map(function(k) {
+				var titles = [ '', _('Name'), _('RTT') ].concat(entrySettings.map(function(k) {
 					return k.label;
 				}), [ _('Priority'), _('File'), '' ]);
 

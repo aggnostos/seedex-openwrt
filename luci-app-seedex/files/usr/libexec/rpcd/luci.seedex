@@ -72,9 +72,22 @@ _uplink() {
 		    else { up: false, reason: $reason } end) }'
 }
 
+# The state and RTT of each vpn and proxy config by name, as the Configs
+# lines of sdx show them.
+_tunnels() {
+	local svc
+	for svc in vpn proxy; do
+		seedex_config_states "seedex-$svc" config "$svc" | jq -R -s --arg svc "$svc" '
+			{($svc): (split("\n") | map(select(length > 0) | split("\u001f")
+				| {key: .[0], value: {state: .[1], active: (.[2] == "1"),
+				   rtt: (if .[3] == "" then null else (.[3] | tonumber) end)}})
+				| from_entries)}'
+	done | jq -s 'add // {}'
+}
+
 do_status() {
 	jq -n --argjson flags "$(_flags)" --argjson pending "$(_pending)" --argjson uplink "$(_uplink)" \
-		'$flags + {pending: $pending, uplink: $uplink}'
+		--argjson tunnels "$(_tunnels)" '$flags + {pending: $pending, uplink: $uplink, tunnels: $tunnels}'
 }
 
 do_config() {
