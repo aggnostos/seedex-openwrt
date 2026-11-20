@@ -196,19 +196,27 @@ _doh_host_ips() {
 			return 0
 		}
 	done
-	log_warn "cannot resolve $host — the encrypted upstream may be unreachable until a tunnel is up"
+	return 1
 }
 
 _write_upstream_ips() {
+	local ips="" tmp
 	mkdir -p "$DNS_RUNDIR"
-	case "$UPSTREAM" in
-	provider) awk '$1 == "nameserver" { print $2 }' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null ;;
-	encrypted)
-		printf '%s\n' "$RESOLVER_IPS" | tr ' ' '\n'
-		_doh_host_ips
-		;;
-	*) printf '%s\n' "$RESOLVER_IPS" | tr ' ' '\n' ;;
-	esac | sed '/^$/d' | sort -u >"$DNS_RUNDIR/upstream.ips"
+	tmp=$(mktemp "$DNS_RUNDIR/upstream.XXXXXX") || return 1
+	if [ "$UPSTREAM" = encrypted ]; then
+		if ips=$(_doh_host_ips); then
+			rm -f "$DNS_RUNDIR/doh-pending"
+		else
+			[ -f "$DNS_RUNDIR/doh-pending" ] || log_warn "cannot resolve the encrypted upstream yet"
+			: >"$DNS_RUNDIR/doh-pending"
+		fi
+	fi
+	# Provider DNS follows the current WAN lease. The file also marks a
+	# running DNS service, so keep it even when no addresses are static.
+	if [ "$UPSTREAM" != provider ]; then
+		printf '%s\n' "$RESOLVER_IPS" "$ips" | tr ' ' '\n' | sed '/^$/d' | sort -u >"$tmp"
+	fi
+	mv "$tmp" "$DNS_RUNDIR/upstream.ips"
 }
 
 _setup_intercept() {
@@ -299,7 +307,8 @@ start_service() {
 		procd_close_instance
 	fi
 
-	_write_upstream_ips
+	rm -f "$DNS_RUNDIR/doh-pending"
+	_write_upstream_ips || return 1
 	seedex_dns_upstream_sync
 	if nft list set inet "$SEEDEX_ROUTER_NFT_TABLE" dns_bootstrap 2>/dev/null | grep -qF elements; then
 		seedex_dns_bootstrap 1
@@ -320,6 +329,10 @@ reload_service() {
 		log_info "settings changed, restarting"
 		start
 		return
+	fi
+	if [ "$UPSTREAM" = encrypted ] && [ -f "$DNS_RUNDIR/doh-pending" ]; then
+		_write_upstream_ips || return 1
+		seedex_dns_upstream_sync
 	fi
 	if _write_dnsmasq_conf; then
 		/etc/init.d/dnsmasq restart 2>/dev/null

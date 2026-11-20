@@ -932,7 +932,8 @@ seedex_dnsmasq_servers() {
 
 seedex_dns_upstream_ips() {
 	{
-		if [ -f "$SEEDEX_DNS_RUNDIR/upstream.ips" ]; then
+		if [ -f "$SEEDEX_DNS_RUNDIR/upstream.ips" ] &&
+			[ "$(uci -q get seedex-dns.main.upstream)" != provider ]; then
 			cat "$SEEDEX_DNS_RUNDIR/upstream.ips"
 		else
 			awk '$1 == "nameserver" { print $2 }' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null
